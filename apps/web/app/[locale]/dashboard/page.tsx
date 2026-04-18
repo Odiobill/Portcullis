@@ -3,8 +3,9 @@ import { headers } from 'next/headers';
 import db from '../../../lib/db';
 import ServiceCard from '../../../components/ServiceCard';
 import RegisterServiceForm from '../../../components/RegisterServiceForm';
-import { LayoutDashboard } from 'lucide-react';
+import LanguageSwitcher from '../../../components/LanguageSwitcher';
 import { Service } from '@prisma/client';
+import Image from 'next/image';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,29 +33,35 @@ export default async function DashboardPage({
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
       {/* Header */}
-      <header className="mb-12 flex flex-col items-start gap-2">
-        <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900 shadow-lg dark:shadow-zinc-900/40">
-            <LayoutDashboard size={24} />
+      <header className="mb-12 flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
+        <div className="flex items-center gap-5">
+          <div className="relative h-16 w-16 overflow-hidden rounded-2xl border border-white/10 bg-card p-2 shadow-2xl shadow-accent-cyan/10">
+            <Image 
+              src="/logo.png" 
+              alt="Portcullis" 
+              fill 
+              className="object-contain p-1"
+            />
           </div>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-              {t('welcome')}
+            <h1 className="text-4xl font-black tracking-tight text-white sm:text-5xl">
+              <span className="bg-gradient-to-r from-accent-purple to-accent-cyan bg-clip-text text-transparent">
+                PORTCULLIS
+              </span>
             </h1>
-            <p className="text-sm font-medium text-zinc-400 dark:text-zinc-500">
-              PORTCULLIS v0.1.0-alpha
+            <p className="text-xs font-bold tracking-[0.2em] text-accent-cyan uppercase">
+              {t('subtitle')}
             </p>
           </div>
         </div>
-        <p className="mt-2 max-w-xl text-lg text-zinc-500 dark:text-zinc-400">
-          {t('subtitle')}
-        </p>
+
+        <LanguageSwitcher />
       </header>
 
       <div className="grid grid-cols-1 gap-12 lg:grid-cols-3">
         {/* Registration Section */}
         <div className="lg:col-span-1">
-          <div className="sticky top-8 rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm transition-all hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="sticky top-8 rounded-3xl border border-white/5 bg-card/50 p-8 backdrop-blur-xl shadow-2xl transition-all hover:border-white/10">
             <RegisterServiceForm />
           </div>
         </div>
@@ -62,11 +69,15 @@ export default async function DashboardPage({
         {/* List Section */}
         <div className="lg:col-span-2">
           {services.length === 0 ? (
-            <div className="flex min-h-[400px] flex-col items-center justify-center rounded-3xl border-2 border-dashed border-zinc-200 p-12 text-center dark:border-zinc-800">
-              <div className="mb-4 rounded-full bg-zinc-100 p-4 dark:bg-zinc-800">
-                <LayoutDashboard size={32} className="text-zinc-400 dark:text-zinc-500" />
+            <div className="flex min-h-[400px] flex-col items-center justify-center rounded-3xl border border-white/5 bg-card/20 p-12 text-center backdrop-blur-sm">
+              <div className="mb-4 rounded-full bg-white/5 p-4">
+                <div className="h-8 w-8 text-accent-cyan opacity-20">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                  </svg>
+                </div>
               </div>
-              <p className="text-lg font-medium text-zinc-500 dark:text-zinc-400">{t('noServices')}</p>
+              <p className="text-lg font-medium text-white/40">{t('noServices')}</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">

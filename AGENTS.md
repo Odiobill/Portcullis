@@ -8,16 +8,16 @@
 
 ## What Is Portcullis?
 
-Portcullis is a self-hosted staging infrastructure manager. It sits on a shared VPS and acts as the single control plane for all experimental projects running there.
+Portcullis is a secure frontend for public servers hosting multiple services. It sits on a shared VPS and acts as the single control plane for all projects running there, optionally allowing them to share the same database instance.
 
 It consists of:
 
 - A **Caddy gateway** that handles all inbound traffic (ports 80/443), provisions SSL certificates automatically via ACME, and routes requests to the appropriate upstream containers — without ever restarting or reloading a config file.
-- A **Next.js PWA** (the manager UI) that lets the operator register, inspect, and decommission staging services through a browser interface, including on mobile.
-- A **Postgres instance** shared across all registered projects (one database + one user per project, never shared credentials).
+- A **Next.js PWA** (the manager UI) that lets the operator register, inspect, and decommission services through a secure browser interface, including on mobile.
+- A **Postgres instance** optionally shared across all registered projects (one database + one user per project, never shared credentials).
 - A thin **backend API** (Next.js route handlers) that translates UI actions into Caddy Admin API calls and Postgres provisioning commands.
 
-When a project hosted under Portcullis matures and is promoted to its own VPS, it is simply deregistered here and redeployed independently.
+When a project hosted under Portcullis matures and is promoted to its own VPS, it can be easily migrated or kept behind this secure frontend.
 
 ---
 
@@ -302,6 +302,12 @@ Significant decisions are recorded in `docs/decisions/`. Before re-litigating an
 - [x] Postgres provisioning on registration (lib/db-provisioning.ts)
 - [x] Caddy route sync on startup (instrumentation.ts)
 - [x] Consolidated repository structure (root .git only)
+- [x] Passcode-based dashboard security
+- [x] Multiple domain/hostname support per service
+- [x] Premium branding and dark-themed dashboard UI
+- [x] Integrated Language Switcher (EN/IT)
+- [x] Language persistence (NEXT_LOCALE cookie)
+- [x] Localized routing and login redirects
 
 ### Known gotchas
 
@@ -314,10 +320,13 @@ Significant decisions are recorded in `docs/decisions/`. Before re-litigating an
 - **Next-intl Plugin**: Ensure `createNextIntlPlugin()` is used in `next.config.ts` to avoid "Couldn't find next-intl config file" errors in standalone mode.
 - **Caddy Admin API Bind**: The Caddy Admin API must be bound to `:2019` in the `Caddyfile` to be accessible from the Next.js container; `localhost:2019` is only reachable from within Caddy itself.
 - **Instrumentation Delay**: Added a 5-second delay to `instrumentation.ts` to ensure Caddy is reachable and DNS has stabilized before the initial route sync.
+- **Prisma Schema Changes**: When changing the schema in a way that breaks existing data (e.g., `domain` -> `domains`), it's easier to run `prisma migrate reset --force` in development if data preservation isn't required.
+- **Next.js 16.2 Middleware**: Wrapping `next-intl` middleware in a custom function in `proxy.ts` allows for adding custom logic like passcode authentication while keeping i18n routing.
+- **Docker Build Context**: If TypeScript errors exist in the source, `docker compose build` will fail during the `npm run build` step. Fix errors on the host first.
 
 ### Last session summary
 
-Resolved 500 errors by correctly configuring the `next-intl` plugin in `next.config.ts`. Fixed Caddy Admin API connectivity issues by updating the bind address and adding a startup delay in `instrumentation.ts`. Consolidated the project into a single git repository by removing nested `.git` directories and implementing a recursive root `.gitignore`.
+Transformed Portcullis into a secure public frontend manager with passcode-based authentication and premium branding. Implemented multiple domain support per service, defaulted the upstream port to 3000, and refactored the data model for multi-tenant flexibility. Added a language switcher with locale persistence and fixed localized routing to prevent 404 errors post-login. Consolidated environment variables into the root `.env` for better security and management.
 
 ---
 

@@ -36,6 +36,8 @@ services:
       - portcullis_internal
       - caddy_gateway
       - db_network
+    env_file:
+      - .env
 
   portcullis_db:
     image: postgres:18-alpine

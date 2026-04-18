@@ -1,15 +1,17 @@
-# Portcullis — Staging Infrastructure Manager
+# Portcullis — Secure Public Frontend Manager
 
-Portcullis is a self-hosted control plane for staging environments. It leverages Caddy, Next.js, and Postgres to provide a seamless registration and management interface for experimental projects.
+Portcullis is a secure control plane for public servers hosting multiple services. It leverages Caddy, Next.js, and Postgres to provide a professional registration and management interface for multi-tenant environments, optionally sharing a single database instance.
 
 ![Portcullis Logo](./apps/web/public/logo.png)
 
 ## Features
-- **Service Management**: Register and decommission staging projects via a responsive dashboard.
+- **Service Management**: Register and decommission public services via a secure, premium dashboard.
+- **Multi-Domain Support**: Map multiple hostnames/domains to a single upstream service with automatic SSL.
 - **Dynamic Gateway**: Zero-restart routing via Caddy's Admin API; automatic route sync on startup.
-- **Automated Provisioning**: Creates a dedicated Postgres database and user for every registered project.
-- **Modern UI**: Next.js 16.2 App Router with Rspack, Tailwind CSS, and bilingual support (EN/IT).
-- **PWA Ready**: Installable on mobile for management on the go.
+- **Automated Provisioning**: Creates a dedicated Postgres database and user for every registered project (or allows shared instance usage).
+- **Secured Access**: Passcode-protected control plane designed for public-facing deployments.
+- **Modern UI**: Next.js 16.2 App Router with Rspack, Tailwind CSS, and premium dark branding.
+- **PWA Ready**: Installable on mobile for total control on the go.
 - **Secure Architecture**: Multi-network Docker setup isolating projects from the control plane and from each other.
 
 ## Tech Stack

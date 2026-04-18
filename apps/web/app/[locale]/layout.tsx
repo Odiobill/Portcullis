@@ -17,8 +17,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Portcullis | Staging Manager",
-  description: "Self-hosted staging infrastructure manager.",
+  title: "Portcullis | Secure Frontend Manager",
+  description: "Secure frontend for public servers hosting multiple services.",
+  icons: {
+    icon: '/icon.png',
+    apple: '/icon.png',
+  }
 };
 
 export default async function LocaleLayout({
@@ -47,7 +51,7 @@ export default async function LocaleLayout({
       lang={locale}
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
+      <body className="min-h-full flex flex-col bg-background text-foreground selection:bg-accent-cyan/30 selection:text-white">
         <NextIntlClientProvider messages={messages}>
           {children}
         </NextIntlClientProvider>

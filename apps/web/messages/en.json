@@ -1,18 +1,18 @@
 {
   "Common": {
     "title": "Portcullis",
-    "description": "Staging Infrastructure Manager"
+    "description": "Secure Frontend Manager"
   },
   "Dashboard": {
     "welcome": "Welcome back, Operator.",
-    "subtitle": "Monitor and manage your internal staging environments.",
+    "subtitle": "Securely monitor and manage your public services.",
     "registerService": "Register Service",
-    "registerDescription": "Map a domain to an internal container and optionally provision a dedicated database.",
+    "registerDescription": "Map a public domain to a container and optionally provision a database instance.",
     "domain": "Domain",
     "domainPlaceholder": "staging.myapp.io",
     "upstreamContainer": "Upstream Container",
     "upstreamPlaceholder": "myapp_container_name",
-    "upstreamPort": "Upstream Port",
+    "upstreamPort": "Port",
     "upstreamPortPlaceholder": "3000",
     "provisionDb": "Provision Database",
     "provisionDbDescription": "Create a dedicated PostgreSQL database and user for this project.",
@@ -27,5 +27,13 @@
     "dbUser": "DB User",
     "dbPassword": "DB Password",
     "close": "Close"
+  },
+  "Login": {
+    "title": "Restricted Access",
+    "subtitle": "Please enter the operator passcode to access the Portcullis control plane.",
+    "passcode": "Passcode",
+    "passcodePlaceholder": "Enter secret...",
+    "submit": "Authenticate",
+    "error": "Invalid passcode. Access denied."
   }
 }

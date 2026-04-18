@@ -4,11 +4,11 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'Portcullis',
     short_name: 'Portcullis',
-    description: 'Self-hosted staging infrastructure manager',
+    description: 'Secure frontend for public servers hosting multiple services',
     start_url: '/',
     display: 'standalone',
-    background_color: '#0a0a0b',
-    theme_color: '#3b82f6',
+    background_color: '#05050f',
+    theme_color: '#00f2ff',
     icons: [
       {
         src: '/icon.png',

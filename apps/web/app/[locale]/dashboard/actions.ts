@@ -12,32 +12,40 @@ export type ActionResponse = {
 };
 
 export async function registerService(prevState: any, formData: FormData): Promise<ActionResponse> {
-  const domain = formData.get('domain') as string;
+  const domainsRaw = formData.get('domain') as string;
   const upstreamContainer = formData.get('upstreamContainer') as string;
   const upstreamPortStr = formData.get('upstreamPort') as string;
   const provisionDb = formData.get('provisionDb') === 'on';
 
-  if (!domain || !upstreamContainer || !upstreamPortStr) {
-    return { success: false, message: 'All fields are required' };
+  if (!domainsRaw || !upstreamContainer) {
+    return { success: false, message: 'Domains and Upstream Container are required' };
   }
 
-  const upstreamPort = parseInt(upstreamPortStr);
+  // Parse multiple domains
+  const domains = domainsRaw.split(',').map(d => d.trim()).filter(Boolean);
+  if (domains.length === 0) {
+    return { success: false, message: 'At least one valid domain is required' };
+  }
+
+  // Default port to 3000 if not specified
+  const upstreamPort = upstreamPortStr ? parseInt(upstreamPortStr) : 3000;
+  const primaryDomain = domains[0];
 
   try {
     // 1. Save to DB
     const service = await db.service.create({
       data: {
-        domain,
+        domains,
         upstreamContainer,
         upstreamPort,
-        dbName: provisionDb ? `db_${domain.replace(/[^a-zA-Z0-9]/g, '_')}`.toLowerCase() : null,
-        dbUser: provisionDb ? `u_${domain.replace(/[^a-zA-Z0-9]/g, '_')}`.toLowerCase().slice(0, 16) : null,
+        dbName: provisionDb ? `db_${primaryDomain.replace(/[^a-zA-Z0-9]/g, '_')}`.toLowerCase() : null,
+        dbUser: provisionDb ? `u_${primaryDomain.replace(/[^a-zA-Z0-9]/g, '_')}`.toLowerCase().slice(0, 16) : null,
       }
     });
 
     // 2. Add Caddy Route
     const upstream = `${upstreamContainer}:${upstreamPort}`;
-    const caddySuccess = await addRoute(service.id, domain, upstream);
+    const caddySuccess = await addRoute(service.id, domains, upstream);
 
     // 3. Provision DB if requested
     let dbPassword = null;

@@ -11,7 +11,7 @@ datasource db {
 
 model Service {
   id                String   @id @default(cuid())
-  domain            String   @unique
+  domains           String[]
   upstreamContainer String   @map("upstream_container")
   upstreamPort      Int      @map("upstream_port")
   dbName            String?  @map("db_name")

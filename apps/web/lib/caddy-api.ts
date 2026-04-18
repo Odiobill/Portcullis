@@ -22,13 +22,13 @@ export interface CaddyRoute {
 /**
  * Adds a new reverse proxy route to Caddy.
  * @param id Unique identifier for the route (used in @id)
- * @param domain The domain name to map
+ * @param domains The domain names to map
  * @param upstream The upstream address (e.g., "container_name:port")
  */
-export async function addRoute(id: string, domain: string, upstream: string): Promise<boolean> {
+export async function addRoute(id: string, domains: string[], upstream: string): Promise<boolean> {
   const route = {
     "@id": id,
-    match: [{ host: [domain] }],
+    match: [{ host: domains }],
     handle: [{
       handler: "reverse_proxy",
       upstreams: [{ dial: upstream }]
@@ -90,7 +90,7 @@ export async function listRoutes(): Promise<CaddyRoute[]> {
  * Syncs the Caddy state with a provided list of routes.
  * Caddy state is ephemeral; call this on startup.
  */
-export async function syncRoutes(routes: Array<{ id: string; domain: string; upstream: string }>): Promise<void> {
+export async function syncRoutes(routes: Array<{ id: string; domains: string[]; upstream: string }>): Promise<void> {
   console.log(`[Caddy] Syncing ${routes.length} routes...`);
 
   // Simple approach: list existing routes with IDs, remove those not in the list, then add/update
@@ -108,6 +108,6 @@ export async function syncRoutes(routes: Array<{ id: string; domain: string; ups
 
   // Add/Update missing or changed routes
   for (const route of routes) {
-    await addRoute(route.id, route.domain, route.upstream);
+    await addRoute(route.id, route.domains, route.upstream);
   }
 }

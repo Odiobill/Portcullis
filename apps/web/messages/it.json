@@ -1,18 +1,18 @@
 {
   "Common": {
     "title": "Portcullis",
-    "description": "Gestore Infrastruttura Staging"
+    "description": "Gestore Frontend Sicuro"
   },
   "Dashboard": {
     "welcome": "Bentornato, Operatore.",
-    "subtitle": "Monitora e gestisci i tuoi ambienti di staging interni.",
+    "subtitle": "Monitora e gestisci in sicurezza i tuoi servizi pubblici.",
     "registerService": "Registra Servizio",
-    "registerDescription": "Mappa un dominio a un container interno e opzionalmente crea un database dedicato.",
+    "registerDescription": "Mappa un dominio pubblico a un container e opzionalmente crea un'istanza database.",
     "domain": "Dominio",
     "domainPlaceholder": "staging.miapp.it",
     "upstreamContainer": "Container Upstream",
     "upstreamPlaceholder": "nome_container_miapp",
-    "upstreamPort": "Porta Upstream",
+    "upstreamPort": "Porta",
     "upstreamPortPlaceholder": "3000",
     "provisionDb": "Crea Database",
     "provisionDbDescription": "Crea un database PostgreSQL e un utente dedicato per questo progetto.",
@@ -27,5 +27,13 @@
     "dbUser": "Utente DB",
     "dbPassword": "Password DB",
     "close": "Chiudi"
+  },
+  "Login": {
+    "title": "Accesso Limitato",
+    "subtitle": "Inserisci il passcode dell'operatore per accedere al pannello di controllo Portcullis.",
+    "passcode": "Passcode",
+    "passcodePlaceholder": "Inserisci segreto...",
+    "submit": "Autenticati",
+    "error": "Passcode non valido. Accesso negato."
   }
 }

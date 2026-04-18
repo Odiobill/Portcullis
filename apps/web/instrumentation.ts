@@ -10,7 +10,7 @@ export async function register() {
       const services = await db.service.findMany();
       const routes = services.map(s => ({
         id: s.id,
-        domain: s.domain,
+        domains: s.domains,
         upstream: `${s.upstreamContainer}:${s.upstreamPort}`
       }));
 
