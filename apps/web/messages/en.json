@@ -1,0 +1,31 @@
+{
+  "Common": {
+    "title": "Portcullis",
+    "description": "Staging Infrastructure Manager"
+  },
+  "Dashboard": {
+    "welcome": "Welcome back, Operator.",
+    "subtitle": "Monitor and manage your internal staging environments.",
+    "registerService": "Register Service",
+    "registerDescription": "Map a domain to an internal container and optionally provision a dedicated database.",
+    "domain": "Domain",
+    "domainPlaceholder": "staging.myapp.io",
+    "upstreamContainer": "Upstream Container",
+    "upstreamPlaceholder": "myapp_container_name",
+    "upstreamPort": "Upstream Port",
+    "upstreamPortPlaceholder": "3000",
+    "provisionDb": "Provision Database",
+    "provisionDbDescription": "Create a dedicated PostgreSQL database and user for this project.",
+    "submit": "Initialize Service",
+    "submitting": "Initializing...",
+    "noServices": "No services registered yet. Deploy your first one above.",
+    "visit": "Visit",
+    "confirmDelete": "Are you sure you want to decommission {domain}? This will remove the Caddy route and, if applicable, PERMANENTLY drop the associated database.",
+    "credentialsTitle": "Database Credentials",
+    "credentialsDescription": "Save these now. For security, they won't be shown again.",
+    "dbName": "DB Name",
+    "dbUser": "DB User",
+    "dbPassword": "DB Password",
+    "close": "Close"
+  }
+}

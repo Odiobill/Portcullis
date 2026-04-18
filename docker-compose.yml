@@ -1,0 +1,65 @@
+services:
+  caddy:
+    image: caddy:alpine
+    container_name: portcullis_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - portcullis_internal
+      - caddy_gateway
+    environment:
+      - PORTCULLIS_DOMAIN=${PORTCULLIS_DOMAIN}
+      - CADDY_TLS_MODE=${CADDY_TLS_MODE}
+    env_file:
+      - .env
+    command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+
+  nextjs_app:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: portcullis_nextjs_app
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@portcullis_db:5432/${DB_NAME}?schema=public
+      - CADDY_ADMIN_API=http://caddy:2019
+    depends_on:
+      - portcullis_db
+    networks:
+      - portcullis_internal
+      - caddy_gateway
+      - db_network
+
+  portcullis_db:
+    image: postgres:18-alpine
+    container_name: portcullis_db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - portcullis_internal
+      - db_network
+
+networks:
+  portcullis_internal:
+    driver: bridge
+  caddy_gateway:
+    external: true
+  db_network:
+    external: true
+
+volumes:
+  caddy_data:
+  caddy_config:
+  pg_data:

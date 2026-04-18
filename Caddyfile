@@ -1,0 +1,20 @@
+# Snippets must be at the top
+(internal) {
+  tls internal
+}
+(acme) {
+}
+
+{
+  # Admin API reachable from within the Docker network
+  admin :2019
+}
+
+# The main Portcullis manager UI
+{$PORTCULLIS_DOMAIN:staging.localhost} {
+  # If CADDY_TLS_MODE is "internal", use the internal CA
+  # Otherwise, Caddy defaults to ACME
+  import {$CADDY_TLS_MODE:acme}
+
+  reverse_proxy nextjs_app:3000
+}

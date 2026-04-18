@@ -1,0 +1,31 @@
+{
+  "Common": {
+    "title": "Portcullis",
+    "description": "Gestore Infrastruttura Staging"
+  },
+  "Dashboard": {
+    "welcome": "Bentornato, Operatore.",
+    "subtitle": "Monitora e gestisci i tuoi ambienti di staging interni.",
+    "registerService": "Registra Servizio",
+    "registerDescription": "Mappa un dominio a un container interno e opzionalmente crea un database dedicato.",
+    "domain": "Dominio",
+    "domainPlaceholder": "staging.miapp.it",
+    "upstreamContainer": "Container Upstream",
+    "upstreamPlaceholder": "nome_container_miapp",
+    "upstreamPort": "Porta Upstream",
+    "upstreamPortPlaceholder": "3000",
+    "provisionDb": "Crea Database",
+    "provisionDbDescription": "Crea un database PostgreSQL e un utente dedicato per questo progetto.",
+    "submit": "Inizializza Servizio",
+    "submitting": "Inizializzazione...",
+    "noServices": "Nessun servizio registrato. Distribuisci il primo qui sopra.",
+    "visit": "Visita",
+    "confirmDelete": "Sei sicuro di voler dismettere {domain}? Questo rimuoverà la rotta Caddy e, se applicabile, eliminerà PERMANENTEMENTE il database associato.",
+    "credentialsTitle": "Credenziali Database",
+    "credentialsDescription": "Salvale ora. Per sicurezza, non verranno mostrate di nuovo.",
+    "dbName": "Nome DB",
+    "dbUser": "Utente DB",
+    "dbPassword": "Password DB",
+    "close": "Chiudi"
+  }
+}

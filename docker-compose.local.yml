@@ -1,0 +1,27 @@
+services:
+  caddy:
+    # Local development: use internal CA (no real ACME)
+    # or just HTTP for simplicity if reachable locally.
+    environment:
+      - CADDY_INGRESS_NETWORK=caddy_gateway
+    # For local testing, we might want to see the ports directly
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+
+  nextjs_app:
+    # Expose nextjs directly for debugging if needed
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+    # In local development, we might not want standalone mode if we were running on host
+    # but since we run in Docker, standalone is fine for consistency.
+    # However, create-next-app by default doesn't enable standalone in dev.
+    # We'll stick to the production-like behavior but with exposed port.
+
+  portcullis_db:
+    # Expose DB for local inspection tools (optional but helpful)
+    ports:
+      - "5432:5432"
