@@ -36,9 +36,13 @@ export async function addRoute(id: string, domains: string[], upstream: string):
   };
 
   try {
-    const response = await fetch(`${CADDY_ADMIN_API}/config/apps/http/servers/srv0/routes`, {
+    const response = await fetch(`${CADDY_ADMIN_API}/config/apps/http/servers/srv0/routes/0`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Host': 'localhost:2019',
+        'Origin': 'http://localhost:2019'
+      },
       body: JSON.stringify(route)
     });
 
@@ -62,7 +66,11 @@ export async function addRoute(id: string, domains: string[], upstream: string):
 export async function deleteRoute(id: string): Promise<boolean> {
   try {
     const response = await fetch(`${CADDY_ADMIN_API}/id/${id}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers: {
+        'Host': 'localhost:2019',
+        'Origin': 'http://localhost:2019'
+      }
     });
 
     return response.ok;
@@ -77,7 +85,12 @@ export async function deleteRoute(id: string): Promise<boolean> {
  */
 export async function listRoutes(): Promise<CaddyRoute[]> {
   try {
-    const response = await fetch(`${CADDY_ADMIN_API}/config/apps/http/servers/srv0/routes`);
+    const response = await fetch(`${CADDY_ADMIN_API}/config/apps/http/servers/srv0/routes`, {
+      headers: {
+        'Host': 'localhost:2019',
+        'Origin': 'http://localhost:2019'
+      }
+    });
     if (!response.ok) return [];
     return await response.json() || [];
   } catch (error) {

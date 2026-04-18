@@ -310,6 +310,8 @@ Significant decisions are recorded in `docs/decisions/`. Before re-litigating an
 - [x] Localized routing and login redirects
 - [x] Custom database credentials (name, user, password) support
 - [x] Fixed dashboard UI interactivity issues (trash icon)
+- [x] Global TLS mode enforcement (internal vs acme)
+- [x] Optimized Caddy route prioritization (projects matched before dashboard)
 
 ### Known gotchas
 
@@ -320,16 +322,17 @@ Significant decisions are recorded in `docs/decisions/`. Before re-litigating an
 - **Caddyfile Snippets**: Snippets must be defined at the TOP of the `Caddyfile`. Use `import {env.VAR}` syntax carefully; ensure the `caddy` service in `docker-compose.yml` explicitly passes these variables.
 - **Prisma Migrations in Docker**: Follow the workflow in [Prisma Migration Workflow](#prisma-migration-workflow). If selective copying of node_modules fails, copy the entire `node_modules` into the runner stage.
 - **Next-intl Plugin**: Ensure `createNextIntlPlugin()` is used in `next.config.ts` to avoid "Couldn't find next-intl config file" errors in standalone mode.
-- **Caddy Admin API Bind**: The Caddy Admin API must be bound to `:2019` in the `Caddyfile` to be accessible from the Next.js container; `localhost:2019` is only reachable from within Caddy itself.
+- **Caddy Admin API Bind**: The Caddy Admin API must be bound to `:2019` in the `Caddyfile` to be accessible from the Next.js container; `localhost:2019` is only reachable from within Caddy itself. Additionally, explicitly allow origins (`*` or specific container names) in the admin block to avoid "Forbidden" errors when making requests from other containers.
 - **Instrumentation Delay**: Added a 5-second delay to `instrumentation.ts` to ensure Caddy is reachable and DNS has stabilized before the initial route sync.
 - **Prisma Schema Changes**: When changing the schema in a way that breaks existing data (e.g., `domain` -> `domains`), it's easier to run `prisma migrate reset --force` in development if data preservation isn't required.
 - **Next.js 16.2 Middleware**: Wrapping `next-intl` middleware in a custom function in `proxy.ts` allows for adding custom logic like passcode authentication while keeping i18n routing.
 - **Docker Build Context**: If TypeScript errors exist in the source, `docker compose build` will fail during the `npm run build` step. Fix errors on the host first.
 - **UI Element Overlap**: Transparent absolute elements (like glow effects) must have `pointer-events-none` to avoid blocking interactions with buttons or links beneath them.
+- **Caddy Route Ordering**: New project routes must be inserted at the beginning of the list (index 0) using the API. Otherwise, broader dashboard routes in the Caddyfile might swallow the requests, leading to unexpected 404s or redirects.
 
 ### Last session summary
 
-Enabled custom database credentials (name, user, password) during service registration, allowing operators to specify exact requirements for upstream apps. Fixed a critical UI bug where the service deletion icon was unclickable. Refactored the registration form to use React state for conditional fields, ensuring the UI correctly resets and hides advanced settings after successful provisioning. Improved the visibility and interactivity of the dashboard controls for a more robust management experience.
+Stabilized the Portcullis infrastructure by resolving critical Caddy Admin API "Forbidden" errors and TLS negotiation failures for local domains. Enabled custom database credentials and fixed several dashboard UI bugs, including unclickable icons and persistent form states. Implemented global TLS mode enforcement and optimized route prioritization to ensure registered services always take precedence over the manager UI.
 
 ---
 

@@ -4,10 +4,20 @@
 }
 (acme) {
 }
+(global_internal) {
+  local_certs
+}
+(global_acme) {
+}
 
 {
+  # Import global TLS settings
+  import global_{$CADDY_TLS_MODE:acme}
+
   # Admin API reachable from within the Docker network
-  admin :2019
+  admin :2019 {
+    origins localhost:2019
+  }
 }
 
 # The main Portcullis manager UI
