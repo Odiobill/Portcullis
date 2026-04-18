@@ -24,8 +24,12 @@
     "credentialsTitle": "Credenziali Database",
     "credentialsDescription": "Salvale ora. Per sicurezza, non verranno mostrate di nuovo.",
     "dbName": "Nome DB",
+    "dbNamePlaceholder": "Opzionale: nome_db_personalizzato",
     "dbUser": "Utente DB",
+    "dbUserPlaceholder": "Opzionale: utente_db_personalizzato",
     "dbPassword": "Password DB",
+    "dbPasswordPlaceholder": "Opzionale: lascia vuoto per generare",
+    "advancedSettings": "Impostazioni Database Avanzate",
     "close": "Chiudi"
   },
   "Login": {

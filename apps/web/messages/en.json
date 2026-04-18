@@ -24,8 +24,12 @@
     "credentialsTitle": "Database Credentials",
     "credentialsDescription": "Save these now. For security, they won't be shown again.",
     "dbName": "DB Name",
+    "dbNamePlaceholder": "Optional: custom_db_name",
     "dbUser": "DB User",
+    "dbUserPlaceholder": "Optional: custom_db_user",
     "dbPassword": "DB Password",
+    "dbPasswordPlaceholder": "Optional: leave empty to generate",
+    "advancedSettings": "Advanced Database Settings",
     "close": "Close"
   },
   "Login": {

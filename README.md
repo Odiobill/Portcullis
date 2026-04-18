@@ -8,7 +8,7 @@ Portcullis is a secure control plane for public servers hosting multiple service
 - **Service Management**: Register and decommission public services via a secure, premium dashboard.
 - **Multi-Domain Support**: Map multiple hostnames/domains to a single upstream service with automatic SSL.
 - **Dynamic Gateway**: Zero-restart routing via Caddy's Admin API; automatic route sync on startup.
-- **Automated Provisioning**: Creates a dedicated Postgres database and user for every registered project (or allows shared instance usage).
+- **Automated Provisioning**: Creates a dedicated Postgres database and user for every registered project (supports both auto-generated and custom credentials).
 - **Secured Access**: Passcode-protected control plane designed for public-facing deployments.
 - **Modern UI**: Next.js 16.2 App Router with Rspack, Tailwind CSS, and premium dark branding.
 - **PWA Ready**: Installable on mobile for total control on the go.

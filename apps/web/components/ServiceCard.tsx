@@ -37,9 +37,9 @@ export default function ServiceCard({ service }: ServiceCardProps) {
   return (
     <div className="group relative overflow-hidden rounded-[2rem] border border-white/5 bg-card/40 p-8 backdrop-blur-xl transition-all hover:border-white/10 hover:shadow-2xl hover:shadow-accent-cyan/5">
       {/* Glow Effect */}
-      <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-accent-cyan/10 blur-3xl transition-opacity opacity-0 group-hover:opacity-100" />
+      <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-accent-cyan/10 blur-3xl transition-opacity opacity-0 group-hover:opacity-100" />
       
-      <div className="flex items-start justify-between">
+      <div className="relative z-10 flex items-start justify-between">
         <div className="flex items-center gap-4">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/5 text-accent-cyan border border-white/5 shadow-inner">
             <Globe size={24} />
@@ -58,7 +58,8 @@ export default function ServiceCard({ service }: ServiceCardProps) {
         <button
           onClick={handleDelete}
           disabled={isDeleting}
-          className="flex h-10 w-10 items-center justify-center rounded-xl text-white/20 transition-all hover:bg-red-500/10 hover:text-red-400 focus:outline-none"
+          className="flex h-10 w-10 items-center justify-center rounded-xl text-white/40 transition-all hover:bg-red-500 hover:text-white focus:outline-none active:scale-90"
+          title={t('confirmDelete', { domain: primaryDomain })}
         >
           <Trash2 size={20} className={isDeleting ? 'animate-pulse' : ''} />
         </button>

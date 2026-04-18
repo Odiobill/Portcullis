@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState, useEffect } from 'react';
+import { useActionState, useState, useEffect, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { registerService } from '../app/[locale]/dashboard/actions';
 import { Globe, Database, Loader2, Copy, Check, X, Server, ShieldCheck } from 'lucide-react';
@@ -9,13 +9,21 @@ export default function RegisterServiceForm() {
   const t = useTranslations('Dashboard');
   const [state, action, isPending] = useActionState(registerService, null);
   const [showCredentials, setShowCredentials] = useState(false);
+  const [provisionDb, setProvisionDb] = useState(false);
   const [copied, setCopied] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     if (state?.success && state.data?.dbPassword) {
       setShowCredentials(true);
     }
   }, [state]);
+
+  const handleCloseModal = () => {
+    setShowCredentials(false);
+    setProvisionDb(false);
+    formRef.current?.reset();
+  };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -25,7 +33,7 @@ export default function RegisterServiceForm() {
 
   return (
     <div className="w-full">
-      <form action={action} className="grid grid-cols-1 gap-6 md:grid-cols-2">
+      <form ref={formRef} action={action} className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <div className="space-y-4 md:col-span-2">
           <div className="flex items-center gap-2 border-b border-white/5 pb-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-purple/10 text-accent-purple">
@@ -81,26 +89,76 @@ export default function RegisterServiceForm() {
           </div>
         </div>
 
-        <label className="flex items-center gap-4 rounded-2xl border border-white/5 bg-white/[0.02] p-5 md:col-span-2 group transition-all hover:bg-white/[0.04] cursor-pointer">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent-cyan/10 text-accent-cyan shadow-inner">
-            <Database size={24} />
+        <div className="md:col-span-2">
+          <label className="flex items-center gap-4 rounded-2xl border border-white/5 bg-white/[0.02] p-5 group transition-all hover:bg-white/[0.04] cursor-pointer">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent-cyan/10 text-accent-cyan shadow-inner">
+              <Database size={24} />
+            </div>
+            <div className="flex-1">
+              <span className="block text-sm font-bold text-white">
+                {t('provisionDb')}
+              </span>
+              <p className="text-xs text-white/40 mt-0.5">{t('provisionDbDescription')}</p>
+            </div>
+            <div className="relative inline-flex items-center">
+              <input
+                type="checkbox"
+                id="provisionDb"
+                name="provisionDb"
+                checked={provisionDb}
+                className="peer sr-only"
+                onChange={(e) => setProvisionDb(e.target.checked)}
+              />
+              <div className="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent-cyan"></div>
+            </div>
+          </label>
+
+          <div 
+            id="advanced-db-settings" 
+            className={`mt-4 grid grid-cols-1 gap-4 rounded-2xl border border-white/5 bg-white/[0.01] p-5 animate-in fade-in slide-in-from-top-2 duration-300 ${provisionDb ? 'grid' : 'hidden'}`}
+          >
+            <p className="text-[10px] font-black uppercase tracking-widest text-accent-cyan/50 mb-1">{t('advancedSettings')}</p>
+            
+            <div className="space-y-2">
+              <label htmlFor="dbName" className="text-[10px] font-bold uppercase tracking-wider text-white/30">
+                {t('dbName')}
+              </label>
+              <input
+                type="text"
+                id="dbName"
+                name="dbName"
+                placeholder={t('dbNamePlaceholder')}
+                className="w-full rounded-xl border border-white/5 bg-white/5 py-3 px-4 text-xs text-white transition-all focus:border-accent-cyan/50 focus:outline-none placeholder:text-white/5"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="dbUser" className="text-[10px] font-bold uppercase tracking-wider text-white/30">
+                {t('dbUser')}
+              </label>
+              <input
+                type="text"
+                id="dbUser"
+                name="dbUser"
+                placeholder={t('dbUserPlaceholder')}
+                className="w-full rounded-xl border border-white/5 bg-white/5 py-3 px-4 text-xs text-white transition-all focus:border-accent-cyan/50 focus:outline-none placeholder:text-white/5"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="dbPassword" className="text-[10px] font-bold uppercase tracking-wider text-white/30">
+                {t('dbPassword')}
+              </label>
+              <input
+                type="password"
+                id="dbPassword"
+                name="dbPassword"
+                placeholder={t('dbPasswordPlaceholder')}
+                className="w-full rounded-xl border border-white/5 bg-white/5 py-3 px-4 text-xs text-white transition-all focus:border-accent-cyan/50 focus:outline-none placeholder:text-white/5"
+              />
+            </div>
           </div>
-          <div className="flex-1">
-            <span className="block text-sm font-bold text-white">
-              {t('provisionDb')}
-            </span>
-            <p className="text-xs text-white/40 mt-0.5">{t('provisionDbDescription')}</p>
-          </div>
-          <div className="relative inline-flex items-center">
-            <input
-              type="checkbox"
-              id="provisionDb"
-              name="provisionDb"
-              className="peer sr-only"
-            />
-            <div className="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent-cyan"></div>
-          </div>
-        </label>
+        </div>
 
         <div className="md:col-span-2 pt-2">
           <button
@@ -164,7 +222,7 @@ export default function RegisterServiceForm() {
             </div>
 
             <button
-              onClick={() => setShowCredentials(false)}
+              onClick={handleCloseModal}
               className="mt-10 w-full rounded-xl bg-white py-4 text-sm font-black uppercase tracking-widest text-black transition-all hover:bg-white/90 active:scale-[0.98]"
             >
               {t('close')}

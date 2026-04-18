@@ -31,6 +31,11 @@ export async function registerService(prevState: any, formData: FormData): Promi
   const upstreamPort = upstreamPortStr ? parseInt(upstreamPortStr) : 3000;
   const primaryDomain = domains[0];
 
+  // Custom DB settings
+  const customDbName = formData.get('dbName') as string;
+  const customDbUser = formData.get('dbUser') as string;
+  const customDbPass = formData.get('dbPassword') as string;
+
   try {
     // 1. Save to DB
     const service = await db.service.create({
@@ -38,8 +43,12 @@ export async function registerService(prevState: any, formData: FormData): Promi
         domains,
         upstreamContainer,
         upstreamPort,
-        dbName: provisionDb ? `db_${primaryDomain.replace(/[^a-zA-Z0-9]/g, '_')}`.toLowerCase() : null,
-        dbUser: provisionDb ? `u_${primaryDomain.replace(/[^a-zA-Z0-9]/g, '_')}`.toLowerCase().slice(0, 16) : null,
+        dbName: provisionDb 
+          ? (customDbName || `db_${primaryDomain.replace(/[^a-zA-Z0-9]/g, '_')}`.toLowerCase())
+          : null,
+        dbUser: provisionDb 
+          ? (customDbUser || `u_${primaryDomain.replace(/[^a-zA-Z0-9]/g, '_')}`.toLowerCase().slice(0, 16))
+          : null,
       }
     });
 
@@ -50,7 +59,7 @@ export async function registerService(prevState: any, formData: FormData): Promi
     // 3. Provision DB if requested
     let dbPassword = null;
     if (provisionDb && service.dbName && service.dbUser) {
-      dbPassword = Math.random().toString(36).slice(-12);
+      dbPassword = customDbPass || Math.random().toString(36).slice(-12);
       await provisionProjectDb(service.dbName, service.dbUser, dbPassword);
     }
 

@@ -308,6 +308,8 @@ Significant decisions are recorded in `docs/decisions/`. Before re-litigating an
 - [x] Integrated Language Switcher (EN/IT)
 - [x] Language persistence (NEXT_LOCALE cookie)
 - [x] Localized routing and login redirects
+- [x] Custom database credentials (name, user, password) support
+- [x] Fixed dashboard UI interactivity issues (trash icon)
 
 ### Known gotchas
 
@@ -323,10 +325,11 @@ Significant decisions are recorded in `docs/decisions/`. Before re-litigating an
 - **Prisma Schema Changes**: When changing the schema in a way that breaks existing data (e.g., `domain` -> `domains`), it's easier to run `prisma migrate reset --force` in development if data preservation isn't required.
 - **Next.js 16.2 Middleware**: Wrapping `next-intl` middleware in a custom function in `proxy.ts` allows for adding custom logic like passcode authentication while keeping i18n routing.
 - **Docker Build Context**: If TypeScript errors exist in the source, `docker compose build` will fail during the `npm run build` step. Fix errors on the host first.
+- **UI Element Overlap**: Transparent absolute elements (like glow effects) must have `pointer-events-none` to avoid blocking interactions with buttons or links beneath them.
 
 ### Last session summary
 
-Transformed Portcullis into a secure public frontend manager with passcode-based authentication and premium branding. Implemented multiple domain support per service, defaulted the upstream port to 3000, and refactored the data model for multi-tenant flexibility. Added a language switcher with locale persistence and fixed localized routing to prevent 404 errors post-login. Consolidated environment variables into the root `.env` for better security and management.
+Enabled custom database credentials (name, user, password) during service registration, allowing operators to specify exact requirements for upstream apps. Fixed a critical UI bug where the service deletion icon was unclickable. Refactored the registration form to use React state for conditional fields, ensuring the UI correctly resets and hides advanced settings after successful provisioning. Improved the visibility and interactivity of the dashboard controls for a more robust management experience.
 
 ---
 
