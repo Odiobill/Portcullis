@@ -38,6 +38,9 @@ yarn-error.log*
 .env.production.local
 !.env.example
 
+# Docker data (bind mounts — survives docker compose down -v)
+data/
+
 # Vercel
 .vercel
 

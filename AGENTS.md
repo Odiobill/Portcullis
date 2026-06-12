@@ -280,6 +280,8 @@ Significant decisions are recorded in `docs/decisions/`. Before re-litigating an
 | 003 | Next.js 16.2 App Router for manager UI |
 | 004 | External Docker networks for cross-stack routing |
 | 005 | Prisma migrations generated inside container, committed to source |
+| 006 | Modular DNS-01 TLS with conditional Caddy build |
+| 007 | Automatic DB backups with retention + on-demand dump API |
 
 ---
 
@@ -312,27 +314,28 @@ Significant decisions are recorded in `docs/decisions/`. Before re-litigating an
 - [x] Fixed dashboard UI interactivity issues (trash icon)
 - [x] Global TLS mode enforcement (internal vs acme)
 - [x] Optimized Caddy route prioritization (projects matched before dashboard)
+- [x] Modular DNS-01 TLS support (Caddyfile dns01 snippet, conditional Caddy Dockerfile)
+- [x] Container healthchecks (caddy, nextjs_app, portcullis_db)
+- [x] .env.example DNS-01 documentation (NameCheap, Cloudflare, Route53 examples)
+- [x] Automatic DB backups (dcron sidecar, pg_dump -Fc, daily/weekly/monthly retention)
+- [x] On-demand dump API (POST /api/services/[id]/dump, passcode-protected, rate-limited)
+- [x] Rate limiting utility (lib/rate-limit.ts)
+- [x] Makefile (build, up, up-all, logs, logs-caddy/app/db/backup, ps, db-reset, dump, clean, help)
+- [x] Resource limits on all containers (mem_limit + cpus)
+- [x] Log rotation (Docker json-file driver: max-size 10m, max-file 3; Caddy logs to stderr)
 
 ### Known gotchas
 
-- **Next.js 16.2 Routing**: Use `proxy.ts` instead of `middleware.ts` for internationalized routing and request interception.
-- **Rspack Support**: Initialized with `--rspack` for optimized build performance. Some typegen tools might require manual triggers in v16.2.
-- **Prisma 7 Config**: Database connection URLs have been moved from `schema.prisma` to `prisma.config.ts`.
-- **Prisma 7 Runtime**: In Next.js standalone builds, the `PrismaClient` may fail to pick up the configuration automatically. Use the `pg` driver adapter (`@prisma/adapter-pg`) to explicitly provide the connection string and adapter to the constructor.
-- **Caddyfile Snippets**: Snippets must be defined at the TOP of the `Caddyfile`. Use `import {env.VAR}` syntax carefully; ensure the `caddy` service in `docker-compose.yml` explicitly passes these variables.
-- **Prisma Migrations in Docker**: Follow the workflow in [Prisma Migration Workflow](#prisma-migration-workflow). If selective copying of node_modules fails, copy the entire `node_modules` into the runner stage.
-- **Next-intl Plugin**: Ensure `createNextIntlPlugin()` is used in `next.config.ts` to avoid "Couldn't find next-intl config file" errors in standalone mode.
-- **Caddy Admin API Bind**: The Caddy Admin API must be bound to `:2019` in the `Caddyfile` to be accessible from the Next.js container; `localhost:2019` is only reachable from within Caddy itself. Additionally, explicitly allow origins (`*` or specific container names) in the admin block to avoid "Forbidden" errors when making requests from other containers.
-- **Instrumentation Delay**: Added a 5-second delay to `instrumentation.ts` to ensure Caddy is reachable and DNS has stabilized before the initial route sync.
-- **Prisma Schema Changes**: When changing the schema in a way that breaks existing data (e.g., `domain` -> `domains`), it's easier to run `prisma migrate reset --force` in development if data preservation isn't required.
-- **Next.js 16.2 Middleware**: Wrapping `next-intl` middleware in a custom function in `proxy.ts` allows for adding custom logic like passcode authentication while keeping i18n routing.
-- **Docker Build Context**: If TypeScript errors exist in the source, `docker compose build` will fail during the `npm run build` step. Fix errors on the host first.
-- **UI Element Overlap**: Transparent absolute elements (like glow effects) must have `pointer-events-none` to avoid blocking interactions with buttons or links beneath them.
-- **Caddy Route Ordering**: New project routes must be inserted at the beginning of the list (index 0) using the API. Otherwise, broader dashboard routes in the Caddyfile might swallow the requests, leading to unexpected 404s or redirects.
+> **⚠️ Gotchas live in the LLM Wiki** at `concepts/portcullis-gotchas.md`.
+> The wiki is accessible to all agents (Hermes, Heimdall, Thor) and synced via Obsidian.
+>
+> AGENTS.md is excluded from rsync (`.rsyncignore` line 46), so gotchas stored here
+> never reach staging/production. The wiki is the single source of truth for
+> cross-agent knowledge. Add new gotchas there, not here.
 
 ### Last session summary
 
-Stabilized the Portcullis infrastructure by resolving critical Caddy Admin API "Forbidden" errors and TLS negotiation failures for local domains. Enabled custom database credentials and fixed several dashboard UI bugs, including unclickable icons and persistent form states. Implemented global TLS mode enforcement and optimized route prioritization to ensure registered services always take precedence over the manager UI.
+Heimdall discovered that `{$CADDY_DNS_DIRECTIVES}` also doesn't work — Caddy's `{$VAR}` produces a single token, so spaced subdirectives are passed as one argument. Redesigned TLS DNS-01 to use per-provider Caddyfile snippets with `{env.XXX}` placeholders (NameCheap, Cloudflare, Route53). This is the only Caddyfile syntax that correctly tokenizes subdirectives. Updated ADR-006 (v2 amendment), Caddyfile, docker-compose.yml, and .env.example.
 
 ---
 
@@ -344,7 +347,7 @@ The agent must perform the following steps at the end of each session **without 
 
 1. **Update "Current State"** above — tick completed items, add new ones if scope expanded.
 
-2. **Update "Known gotchas"** — add any issue encountered that was non-obvious or required more than one attempt to resolve. Be specific enough that the next agent session can avoid the same mistake.
+2. **Update "Known gotchas"** — if a new gotcha is discovered, add it to the wiki at `concepts/portcullis-gotchas.md` (not here — this file is excluded from rsync).
 
 3. **Update "Last session summary"** — two to five sentences describing what was built or changed.
 

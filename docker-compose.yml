@@ -1,25 +1,46 @@
 services:
   caddy:
-    image: caddy:alpine
+    build:
+      context: ./docker/caddy
+      args:
+        CADDY_DNS_PROVIDER: ${CADDY_DNS_PROVIDER:-}
+    image: portcullis-caddy:latest
     container_name: portcullis_caddy
     restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
     ports:
       - "80:80"
       - "443:443"
       - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
+      - ./data/caddy_data:/data
+      - ./data/caddy_config:/config
     networks:
       - portcullis_internal
       - caddy_gateway
     environment:
       - PORTCULLIS_DOMAIN=${PORTCULLIS_DOMAIN}
       - CADDY_TLS_MODE=${CADDY_TLS_MODE}
+      - CADDY_DNS_PROVIDER=${CADDY_DNS_PROVIDER:-}
+      - NAMECHEAP_API_KEY=${NAMECHEAP_API_KEY:-}
+      - NAMECHEAP_API_USER=${NAMECHEAP_API_USER:-}
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
     env_file:
       - .env
     command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    healthcheck:
+      test: ["CMD", "caddy", "version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   nextjs_app:
     build:
@@ -27,31 +48,89 @@ services:
       dockerfile: Dockerfile
     container_name: portcullis_nextjs_app
     restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
     environment:
       - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@portcullis_db:5432/${DB_NAME}?schema=public
       - CADDY_ADMIN_API=http://caddy:2019
     depends_on:
-      - portcullis_db
+      portcullis_db:
+        condition: service_healthy
     networks:
       - portcullis_internal
       - caddy_gateway
       - db_network
     env_file:
       - .env
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/', r => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   portcullis_db:
     image: postgres:18-alpine
     container_name: portcullis_db
     restart: unless-stopped
+    mem_limit: 256m
+    cpus: 1.0
     environment:
       - POSTGRES_DB=${DB_NAME}
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      - ./data/pg_data:/var/lib/postgresql
     networks:
       - portcullis_internal
       - db_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  backup:
+    profiles:
+      - backup
+    build:
+      context: ./docker/backup
+    image: portcullis-backup:latest
+    container_name: portcullis_backup
+    restart: unless-stopped
+    mem_limit: 64m
+    cpus: 0.25
+    environment:
+      - PGHOST=portcullis_db
+      - PGUSER=${DB_USER}
+      - PGPASSWORD=${DB_PASSWORD}
+      - MANAGER_DB=${DB_NAME}
+      - BACKUP_SCHEDULE=${BACKUP_SCHEDULE:-0 3 * * *}
+      - RETENTION_DAILY=${BACKUP_RETENTION_DAILY:-7}
+      - RETENTION_WEEKLY=${BACKUP_RETENTION_WEEKLY:-4}
+      - RETENTION_MONTHLY=${BACKUP_RETENTION_MONTHLY:-3}
+    volumes:
+      - backup_data:/backups
+    networks:
+      - db_network
+    env_file:
+      - .env
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   portcullis_internal:
@@ -62,6 +141,4 @@ networks:
     external: true
 
 volumes:
-  caddy_data:
-  caddy_config:
-  pg_data:
+  backup_data:

@@ -29,6 +29,9 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
+# postgresql-client provides pg_dump for the on-demand dump API
+RUN apk add --no-cache postgresql-client
+
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 

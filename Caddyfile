@@ -1,14 +1,66 @@
 # Snippets must be at the top
+
+# ── TLS mode snippets (per-site block) ────────────────────────
+
 (internal) {
   tls internal
 }
+
 (acme) {
+  # HTTP-01 challenge (default) — requires port 80 reachable from internet
 }
+
+# DNS-01 providers — for staging/internal networks without public ports.
+# Each uses {env.XXX} placeholders (NOT {$VAR}) because Caddy resolves each
+# {env.XXX} as a separate token. {$VAR} would produce a single token even if
+# the value contains spaces, which the dns module cannot parse.
+#
+# Set CADDY_TLS_MODE to the snippet name (e.g. namecheap_tls).
+# Uncomment and set the corresponding env vars in .env.
+
+(namecheap_tls) {
+  tls {
+    dns namecheap {
+      api_key {env.NAMECHEAP_API_KEY}
+      user {env.NAMECHEAP_API_USER}
+    }
+  }
+}
+
+(cloudflare_tls) {
+  tls {
+    dns cloudflare {
+      api_token {env.CLOUDFLARE_API_TOKEN}
+    }
+  }
+}
+
+(route53_tls) {
+  # Uses IAM role — no credentials needed
+  tls {
+    dns route53
+  }
+}
+
+# ── Global snippets (required for global block import) ────────
+
 (global_internal) {
   local_certs
 }
+
 (global_acme) {
 }
+
+(global_namecheap_tls) {
+}
+
+(global_cloudflare_tls) {
+}
+
+(global_route53_tls) {
+}
+
+# ── Global config ─────────────────────────────────────────────
 
 {
   # Import global TLS settings
@@ -16,14 +68,20 @@
 
   # Admin API reachable from within the Docker network
   admin :2019 {
-    origins localhost:2019
+    origins localhost:2019 caddy:2019
+  }
+
+  # Log to stderr (captured by Docker json-file driver with rotation)
+  log {
+    output stderr
+    level INFO
   }
 }
 
-# The main Portcullis manager UI
+# ── Main site ─────────────────────────────────────────────────
+
 {$PORTCULLIS_DOMAIN:staging.localhost} {
-  # If CADDY_TLS_MODE is "internal", use the internal CA
-  # Otherwise, Caddy defaults to ACME
+  # CADDY_TLS_MODE selects: internal | acme | namecheap_tls | cloudflare_tls | route53_tls
   import {$CADDY_TLS_MODE:acme}
 
   reverse_proxy nextjs_app:3000

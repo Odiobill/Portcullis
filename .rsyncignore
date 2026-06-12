@@ -42,6 +42,7 @@ Thumbs.db
 *.swo
 
 # Project specific
-docs/tasks/current-task.md
+data/
+docs/
 AGENTS.md
 CLAUDE.md
