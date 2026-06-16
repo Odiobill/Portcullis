@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 // CJS version of prisma.config for production runner.
 // This file is used instead of prisma.config.ts which requires TypeScript support.
 // It reads DATABASE_URL from the environment, exactly like the TS version.

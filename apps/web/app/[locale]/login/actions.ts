@@ -1,9 +1,11 @@
 'use server';
 
 import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
 
-export async function login(prevState: any, formData: FormData) {
+type LoginState = { success: boolean; error?: string } | null;
+
+export async function login(prevState: LoginState, formData: FormData) {
+  void prevState;
   const passcode = formData.get('passcode') as string;
   const locale = formData.get('locale') as string || 'en';
   const correctPasscode = process.env.PORTCULLIS_PASSCODE;

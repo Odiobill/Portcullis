@@ -1,27 +1,45 @@
 'use client';
 
-import { useActionState, useState, useEffect, useRef } from 'react';
+import { useActionState, useState, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { registerService } from '../app/[locale]/dashboard/actions';
-import { Globe, Database, Loader2, Copy, Check, X, Server, ShieldCheck } from 'lucide-react';
+import { Globe, Database, Loader2, Copy, Check, X, ShieldCheck, ShieldQuestion, Server } from 'lucide-react';
 
-export default function RegisterServiceForm() {
+export type TlsModeOption = {
+  value: string;
+  label: string;
+  available: boolean;
+};
+
+export default function RegisterServiceForm({ tlsModes }: { tlsModes: TlsModeOption[] }) {
   const t = useTranslations('Dashboard');
   const [state, action, isPending] = useActionState(registerService, null);
-  const [showCredentials, setShowCredentials] = useState(false);
+  const [dismissedCredentialId, setDismissedCredentialId] = useState<string | null>(null);
   const [provisionDb, setProvisionDb] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [serviceType, setServiceType] = useState<'proxy' | 'static'>('proxy');
+  const [domainInput, setDomainInput] = useState('');
+  const [staticRoot, setStaticRoot] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
 
-  useEffect(() => {
-    if (state?.success && state.data?.dbPassword) {
-      setShowCredentials(true);
-    }
-  }, [state]);
+  // Compute default TLS mode: namecheap_tls > acme > first available
+  const defaultTlsMode = tlsModes.find(m => m.value === 'namecheap_tls' && m.available)
+    ?? tlsModes.find(m => m.value === 'acme' && m.available)
+    ?? tlsModes.find(m => m.available)
+    ?? tlsModes[0];
+
+
+  const credentialId = state?.data?.id ?? null;
+  const credentialDbName = state?.data?.dbName ?? '';
+  const credentialDbUser = state?.data?.dbUser ?? '';
+  const credentialPassword = state?.data?.dbPassword ?? '';
+  const showCredentials = Boolean(state?.success && credentialPassword && credentialId !== dismissedCredentialId);
 
   const handleCloseModal = () => {
-    setShowCredentials(false);
+    setDismissedCredentialId(credentialId);
     setProvisionDb(false);
+    setDomainInput('');
+    setStaticRoot('');
     formRef.current?.reset();
   };
 
@@ -53,40 +71,154 @@ export default function RegisterServiceForm() {
             id="domain"
             name="domain"
             required
+            value={domainInput}
+            onChange={(e) => {
+              const nextDomain = e.target.value;
+              setDomainInput(nextDomain);
+              if (serviceType === 'static') {
+                const primaryDomain = nextDomain.split(',')[0].trim();
+                setStaticRoot(primaryDomain ? `/srv/sites/${primaryDomain}` : '');
+              }
+            }}
             placeholder={t('domainPlaceholder')}
             className="w-full rounded-xl border border-white/5 bg-white/5 py-4 px-5 text-sm text-white transition-all focus:border-accent-cyan/50 focus:outline-none focus:ring-1 focus:ring-accent-cyan/50 placeholder:text-white/10"
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 md:col-span-2">
-          <div className="space-y-2 sm:col-span-2">
-            <label htmlFor="upstreamContainer" className="text-xs font-bold uppercase tracking-wider text-white/40">
-              {t('upstreamContainer')}
-            </label>
-            <div className="relative">
+        {/* Service Type Toggle */}
+        <div className="space-y-2 md:col-span-2">
+          <label className="text-xs font-bold uppercase tracking-wider text-white/40">Service Type</label>
+          <div className="flex gap-4">
+            <label className={`flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl border py-4 px-5 text-sm font-bold transition-all ${
+              serviceType === 'proxy'
+                ? 'border-accent-purple/50 bg-accent-purple/10 text-accent-purple'
+                : 'border-white/5 bg-white/5 text-white/40 hover:border-white/10'
+            }`}>
               <input
-                type="text"
-                id="upstreamContainer"
-                name="upstreamContainer"
-                required
-                placeholder={t('upstreamPlaceholder')}
+                type="radio"
+                name="serviceType"
+                value="proxy"
+                checked={serviceType === 'proxy'}
+                onChange={() => setServiceType('proxy')}
+                className="sr-only"
+              />
+              <Server size={18} />
+              Reverse Proxy
+            </label>
+            <label className={`flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl border py-4 px-5 text-sm font-bold transition-all ${
+              serviceType === 'static'
+                ? 'border-accent-cyan/50 bg-accent-cyan/10 text-accent-cyan'
+                : 'border-white/5 bg-white/5 text-white/40 hover:border-white/10'
+            }`}>
+              <input
+                type="radio"
+                name="serviceType"
+                value="static"
+                checked={serviceType === 'static'}
+                onChange={() => {
+                  setServiceType('static');
+                  const primaryDomain = domainInput.split(',')[0].trim();
+                  setStaticRoot(primaryDomain ? `/srv/sites/${primaryDomain}` : '');
+                }}
+                className="sr-only"
+              />
+              <Globe size={18} />
+              Static Site
+            </label>
+          </div>
+        </div>
+
+        {/* Proxy-specific fields */}
+        {serviceType === 'proxy' && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 md:col-span-2">
+            <div className="space-y-2 sm:col-span-2">
+              <label htmlFor="upstreamContainer" className="text-xs font-bold uppercase tracking-wider text-white/40">
+                {t('upstreamContainer')}
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  id="upstreamContainer"
+                  name="upstreamContainer"
+                  required
+                  placeholder={t('upstreamPlaceholder')}
+                  className="w-full rounded-xl border border-white/5 bg-white/5 py-4 px-5 text-sm text-white transition-all focus:border-accent-cyan/50 focus:outline-none focus:ring-1 focus:ring-accent-cyan/50 placeholder:text-white/10"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="upstreamPort" className="text-xs font-bold uppercase tracking-wider text-white/40">
+                {t('upstreamPort')}
+              </label>
+              <input
+                type="number"
+                id="upstreamPort"
+                name="upstreamPort"
+                defaultValue="3000"
+                placeholder="3000"
                 className="w-full rounded-xl border border-white/5 bg-white/5 py-4 px-5 text-sm text-white transition-all focus:border-accent-cyan/50 focus:outline-none focus:ring-1 focus:ring-accent-cyan/50 placeholder:text-white/10"
               />
             </div>
           </div>
-          <div className="space-y-2">
-            <label htmlFor="upstreamPort" className="text-xs font-bold uppercase tracking-wider text-white/40">
-              {t('upstreamPort')}
+        )}
+
+        {/* Static-specific fields */}
+        {serviceType === 'static' && (
+          <div className="space-y-2 md:col-span-2">
+            <label htmlFor="staticRoot" className="text-xs font-bold uppercase tracking-wider text-white/40">
+              Static Root Path
             </label>
             <input
-              type="number"
-              id="upstreamPort"
-              name="upstreamPort"
-              defaultValue="3000"
-              placeholder="3000"
-              className="w-full rounded-xl border border-white/5 bg-white/5 py-4 px-5 text-sm text-white transition-all focus:border-accent-cyan/50 focus:outline-none focus:ring-1 focus:ring-accent-cyan/50 placeholder:text-white/10"
+              type="text"
+              id="staticRoot"
+              name="staticRoot"
+              value={staticRoot}
+              onChange={(e) => setStaticRoot(e.target.value)}
+              placeholder="/srv/sites/your.domain.com"
+              className="w-full rounded-xl border border-white/5 bg-white/5 py-4 px-5 text-sm text-white transition-all focus:border-accent-cyan/50 focus:outline-none focus:ring-1 focus:ring-accent-cyan/50 placeholder:text-white/10 font-mono"
             />
+            <p className="text-[10px] text-white/30 mt-1">
+              Path on the host where static files are served from. Must start with <code className="text-accent-cyan/50">/srv/sites/</code>.
+            </p>
           </div>
+        )}
+
+        <div className="space-y-2 md:col-span-2">
+          <label htmlFor="tlsMode" className="text-xs font-bold uppercase tracking-wider text-white/40">
+            {t('tlsMode')}
+          </label>
+          <div className="relative">
+            <select
+              id="tlsMode"
+              name="tlsMode"
+              defaultValue={defaultTlsMode?.value || ''}
+              className="w-full rounded-xl border border-white/5 bg-white/5 py-4 px-5 text-sm text-white transition-all focus:border-accent-cyan/50 focus:outline-none focus:ring-1 focus:ring-accent-cyan/50 appearance-none"
+            >
+              <option value="" disabled className="bg-card text-white/40">
+                {t('tlsModePlaceholder')}
+              </option>
+              {tlsModes.map((mode) => (
+                <option
+                  key={mode.value}
+                  value={mode.value}
+                  disabled={!mode.available}
+                  className="bg-card text-white"
+                >
+                  {mode.label}{!mode.available ? ` (${t('tlsModeNotConfigured')})` : ''}
+                </option>
+              ))}
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-4 flex items-center">
+              {tlsModes.some(m => !m.available) ? (
+                <ShieldQuestion size={16} className="text-white/20" />
+              ) : (
+                <ShieldCheck size={16} className="text-accent-cyan/50" />
+              )}
+            </div>
+          </div>
+          <p className="text-[10px] text-white/30 mt-1">
+            {t('tlsModeDescription')}
+          </p>
         </div>
 
         <div className="md:col-span-2">
@@ -201,18 +333,18 @@ export default function RegisterServiceForm() {
             <div className="space-y-4">
               <div className="space-y-2 rounded-2xl bg-white/5 p-5 border border-white/5">
                 <p className="text-[10px] font-black uppercase tracking-widest text-white/30">{t('dbName')}</p>
-                <code className="block text-sm font-mono font-bold text-accent-cyan">{state.data.dbName}</code>
+                <code className="block text-sm font-mono font-bold text-accent-cyan">{credentialDbName}</code>
               </div>
               <div className="space-y-2 rounded-2xl bg-white/5 p-5 border border-white/5">
                 <p className="text-[10px] font-black uppercase tracking-widest text-white/30">{t('dbUser')}</p>
-                <code className="block text-sm font-mono font-bold text-accent-cyan">{state.data.dbUser}</code>
+                <code className="block text-sm font-mono font-bold text-accent-cyan">{credentialDbUser}</code>
               </div>
               <div className="relative space-y-2 rounded-2xl bg-white/5 p-5 border border-white/5 group">
                 <p className="text-[10px] font-black uppercase tracking-widest text-white/30">{t('dbPassword')}</p>
                 <div className="flex items-center justify-between">
-                  <code className="text-base font-mono font-black text-white">{state.data.dbPassword}</code>
+                  <code className="text-base font-mono font-black text-white">{credentialPassword}</code>
                   <button
-                    onClick={() => copyToClipboard(state.data.dbPassword)}
+                    onClick={() => copyToClipboard(credentialPassword)}
                     className="rounded-lg p-2 text-white/40 transition-colors hover:bg-white/10 hover:text-white"
                   >
                     {copied ? <Check size={18} className="text-green-400" /> : <Copy size={18} />}

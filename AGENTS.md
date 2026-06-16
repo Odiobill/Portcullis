@@ -323,6 +323,7 @@ Significant decisions are recorded in `docs/decisions/`. Before re-litigating an
 - [x] Makefile (build, up, up-all, logs, logs-caddy/app/db/backup, ps, db-reset, dump, clean, help)
 - [x] Resource limits on all containers (mem_limit + cpus)
 - [x] Log rotation (Docker json-file driver: max-size 10m, max-file 3; Caddy logs to stderr)
+- [x] Static file serving (P3): service type toggle (proxy/static) in registration form, conditional upstream vs static root fields, auto-derived root from domain, `root *` + `file_server` generation for static services, `/srv/sites:/srv/sites:ro` Caddy volume mount, 49/49 unit tests passing
 
 ### Known gotchas
 
@@ -335,7 +336,7 @@ Significant decisions are recorded in `docs/decisions/`. Before re-litigating an
 
 ### Last session summary
 
-Heimdall discovered that `{$CADDY_DNS_DIRECTIVES}` also doesn't work — Caddy's `{$VAR}` produces a single token, so spaced subdirectives are passed as one argument. Redesigned TLS DNS-01 to use per-provider Caddyfile snippets with `{env.XXX}` placeholders (NameCheap, Cloudflare, Route53). This is the only Caddyfile syntax that correctly tokenizes subdirectives. Updated ADR-006 (v2 amendment), Caddyfile, docker-compose.yml, and .env.example.
+Codex verified Hermes' P3 (Static File Serving) implementation independently. Verified: `/srv/sites:/srv/sites:ro` Caddy mount, service type toggle in registration UI, branching server actions, `root *` + `file_server` Caddyfile generation, validation of static roots under `/srv/sites/`, ServiceCard display of static services, and startup reconciliation. All 49 tests passed, TypeScript compiled successfully, no P4 features crept in. Davide inbox notification written for Thor to relay.
 
 ---
 

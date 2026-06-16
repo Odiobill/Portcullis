@@ -1,6 +1,14 @@
 /**
- * Canonical wrapper for the Caddy Admin API.
- * This is the ONLY place where the Caddy API should be called.
+ * ⚠️ LEGACY — Caddy Admin API wrapper.
+ *
+ * Route management (addRoute, deleteRoute, syncRoutes) is now handled
+ * by apps/web/lib/caddyfile.ts via generated Caddyfiles.
+ * These functions are KEPT temporarily for:
+ *   - reload-only Admin API usage
+ *   - debugging / inspection
+ *
+ * Do NOT use addRoute, deleteRoute, or syncRoutes in new code.
+ * They will be removed in a future milestone.
  */
 
 const CADDY_ADMIN_API = process.env.CADDY_ADMIN_API || 'http://caddy:2019';
@@ -12,7 +20,7 @@ export interface CaddyRoute {
     upstreams?: Array<{
       dial: string;
     }>;
-    [key: string]: any;
+    [key: string]: unknown;
   }>;
   match: Array<{
     host: Array<string>;
@@ -20,10 +28,7 @@ export interface CaddyRoute {
 }
 
 /**
- * Adds a new reverse proxy route to Caddy.
- * @param id Unique identifier for the route (used in @id)
- * @param domains The domain names to map
- * @param upstream The upstream address (e.g., "container_name:port")
+ * @deprecated Use deployServiceCaddyfile from lib/caddyfile instead.
  */
 export async function addRoute(id: string, domains: string[], upstream: string): Promise<boolean> {
   const route = {
@@ -60,8 +65,7 @@ export async function addRoute(id: string, domains: string[], upstream: string):
 }
 
 /**
- * Deletes a route by its @id.
- * @param id The unique identifier of the route
+ * @deprecated Use removeServiceCaddyfile from lib/caddyfile instead.
  */
 export async function deleteRoute(id: string): Promise<boolean> {
   try {
@@ -81,7 +85,30 @@ export async function deleteRoute(id: string): Promise<boolean> {
 }
 
 /**
- * Lists all active routes.
+ * @deprecated Use reconcileCaddyfiles from lib/caddyfile instead.
+ */
+export async function syncRoutes(routes: Array<{ id: string; domains: string[]; upstream: string }>): Promise<void> {
+  console.log(`[Caddy] Syncing ${routes.length} routes (deprecated)...`);
+
+  const activeRoutes = await listRoutes();
+  const activeIds = activeRoutes.map(r => r["@id"]).filter(Boolean);
+
+  const desiredIds = routes.map(r => r.id);
+
+  for (const id of activeIds) {
+    if (!desiredIds.includes(id)) {
+      await deleteRoute(id);
+    }
+  }
+
+  for (const route of routes) {
+    await addRoute(route.id, route.domains, route.upstream);
+  }
+}
+
+/**
+ * Lists all active routes from the Caddy Admin API.
+ * Kept as a read-only inspection tool.
  */
 export async function listRoutes(): Promise<CaddyRoute[]> {
   try {
@@ -96,31 +123,5 @@ export async function listRoutes(): Promise<CaddyRoute[]> {
   } catch (error) {
     console.error(`[Caddy] Network error listing routes:`, error);
     return [];
-  }
-}
-
-/**
- * Syncs the Caddy state with a provided list of routes.
- * Caddy state is ephemeral; call this on startup.
- */
-export async function syncRoutes(routes: Array<{ id: string; domains: string[]; upstream: string }>): Promise<void> {
-  console.log(`[Caddy] Syncing ${routes.length} routes...`);
-
-  // Simple approach: list existing routes with IDs, remove those not in the list, then add/update
-  const activeRoutes = await listRoutes();
-  const activeIds = activeRoutes.map(r => r["@id"]).filter(Boolean);
-
-  const desiredIds = routes.map(r => r.id);
-
-  // Delete routes that should not exist
-  for (const id of activeIds) {
-    if (!desiredIds.includes(id)) {
-      await deleteRoute(id);
-    }
-  }
-
-  // Add/Update missing or changed routes
-  for (const route of routes) {
-    await addRoute(route.id, route.domains, route.upstream);
   }
 }

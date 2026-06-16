@@ -3,6 +3,8 @@ import { headers } from 'next/headers';
 import db from '../../../lib/db';
 import ServiceCard from '../../../components/ServiceCard';
 import RegisterServiceForm from '../../../components/RegisterServiceForm';
+import CaddyReloadButton from '../../../components/CaddyReloadButton';
+import { availableTlsModes } from '../../../lib/caddyfile';
 import LanguageSwitcher from '../../../components/LanguageSwitcher';
 import { Service } from '@prisma/client';
 import Image from 'next/image';
@@ -55,14 +57,17 @@ export default async function DashboardPage({
           </div>
         </div>
 
-        <LanguageSwitcher />
+        <div className="flex items-center gap-3">
+          <CaddyReloadButton />
+          <LanguageSwitcher />
+        </div>
       </header>
 
       <div className="grid grid-cols-1 gap-12 lg:grid-cols-3">
         {/* Registration Section */}
         <div className="lg:col-span-1">
           <div className="sticky top-8 rounded-3xl border border-white/5 bg-card/50 p-8 backdrop-blur-xl shadow-2xl transition-all hover:border-white/10">
-            <RegisterServiceForm />
+            <RegisterServiceForm tlsModes={availableTlsModes()} />
           </div>
         </div>
 
@@ -82,7 +87,7 @@ export default async function DashboardPage({
           ) : (
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
               {services.map((service) => (
-                <ServiceCard key={service.id} service={service} />
+                <ServiceCard key={service.id} service={service} tlsModes={availableTlsModes()} />
               ))}
             </div>
           )}

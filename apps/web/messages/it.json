@@ -30,7 +30,11 @@
     "dbPassword": "Password DB",
     "dbPasswordPlaceholder": "Opzionale: lascia vuoto per generare",
     "advancedSettings": "Impostazioni Database Avanzate",
-    "close": "Chiudi"
+    "close": "Chiudi",
+    "tlsMode": "Modalità TLS",
+    "tlsModePlaceholder": "Seleziona modalità TLS...",
+    "tlsModeNotConfigured": "non configurata",
+    "tlsModeDescription": "Namecheap auto-selezionata se configurata. Modalità non disponibili appaiono opacizzate."
   },
   "Login": {
     "title": "Accesso Limitato",

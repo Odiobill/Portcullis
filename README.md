@@ -6,7 +6,7 @@ Portcullis is a secure control plane for public servers hosting multiple service
 
 ## Features
 
-- **Service Management**: Register and decommission public services via a secure, premium dashboard.
+- **Service Management**: Register and decommission public services via a secure, premium dashboard. Supports both reverse proxy (Docker containers) and **static file serving** (HTML/CSS/JS sites served directly by Caddy).
 - **Multi-Domain Support**: Map multiple hostnames/domains to a single upstream service with automatic SSL.
 - **Dynamic Gateway**: Zero-restart routing via Caddy's Admin API; automatic route sync on startup.
 - **Automated Provisioning**: Creates a dedicated Postgres database and user for every registered project (supports both auto-generated and custom credentials).

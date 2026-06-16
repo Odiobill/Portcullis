@@ -1,6 +1,8 @@
 # Base image
 FROM node:22-alpine AS base
 
+ARG CADDY_DNS_PROVIDER
+
 # Install dependencies only when needed
 FROM base AS deps
 RUN apk add --no-cache libc6-compat
@@ -23,8 +25,23 @@ COPY . .
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 RUN npm run build
 
+# Build Caddy binary with optional DNS plugin (same logic as docker/caddy/Dockerfile)
+FROM --platform=$BUILDPLATFORM caddy:builder AS caddy-builder
+ARG CADDY_DNS_PROVIDER
+RUN if [ -n "${CADDY_DNS_PROVIDER}" ]; then \
+      echo "→ Building Caddy with caddy-dns/${CADDY_DNS_PROVIDER} plugin"; \
+      xcaddy build --with github.com/caddy-dns/${CADDY_DNS_PROVIDER} --output /build/caddy; \
+    else \
+      echo "→ No DNS provider set — copying stock Caddy binary"; \
+      cp /usr/bin/caddy /build/caddy; \
+    fi
+
 # Production image
 FROM base AS runner
+
+# Copy Caddy binary (with optional DNS plugin) for validation and reload
+COPY --from=caddy-builder /build/caddy /usr/local/bin/caddy
+
 WORKDIR /app
 
 ENV NODE_ENV=production

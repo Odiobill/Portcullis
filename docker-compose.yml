@@ -14,7 +14,9 @@ services:
       - "443:443"
       - "443:443/udp"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./sites:/etc/caddy/sites:ro
+      - /srv/sites:/srv/sites:ro
       - ./data/caddy_data:/data
       - ./data/caddy_config:/config
     networks:
@@ -46,6 +48,8 @@ services:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
+      args:
+        CADDY_DNS_PROVIDER: ${CADDY_DNS_PROVIDER:-}
     container_name: portcullis_nextjs_app
     restart: unless-stopped
     mem_limit: 512m
@@ -53,6 +57,10 @@ services:
     environment:
       - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@portcullis_db:5432/${DB_NAME}?schema=public
       - CADDY_ADMIN_API=http://caddy:2019
+      - CADDY_ADMIN_ADDRESS=http://caddy:2019
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./sites:/etc/caddy/sites
     depends_on:
       portcullis_db:
         condition: service_healthy
