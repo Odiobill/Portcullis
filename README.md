@@ -8,10 +8,12 @@ Portcullis is a secure control plane for public servers hosting multiple service
 
 - **Service Management**: Register and decommission public services via a secure, premium dashboard. Supports both reverse proxy (Docker containers) and **static file serving** (HTML/CSS/JS sites served directly by Caddy).
 - **Multi-Domain Support**: Map multiple hostnames/domains to a single upstream service with automatic SSL.
-- **Dynamic Gateway**: Zero-restart routing via Caddy's Admin API; automatic route sync on startup.
+- **Generated Caddyfiles**: Services are written to `sites/generated/<service-id>.caddy`, validated, then Caddy is reloaded with rollback safety.
+- **Manual Operator Config**: Operator-owned Caddy blocks live in `sites/manual/*.caddy` and are never modified by Portcullis.
 - **Automated Provisioning**: Creates a dedicated Postgres database and user for every registered project (supports both auto-generated and custom credentials).
 - **DNS-01 TLS**: Modular DNS challenge support for staging/internal networks without public ports. Per-provider Caddyfile snippets for NameCheap, Cloudflare, and Route53.
-- **Automatic Backups**: Nightly `pg_dump -Fc` per service with daily/weekly/monthly retention tiers (7/4/3). Sidecar container, enabled via `--profile backup`.
+- **Static File Serving**: Register static sites served directly by Caddy from `/srv/sites/<domain>`, without an app container.
+- **Automatic Backups**: Nightly `pg_dump -Fc` per service with daily/weekly/monthly retention tiers (7/4/3). Sidecar container, enabled via `--profile backup`; dashboard lists and downloads backups read-only.
 - **On-Demand Dump API**: `POST /api/services/[id]/dump` — passcode-protected, rate-limited, streaming dump for service migration.
 - **Container Healthchecks**: All three core containers monitored with Docker healthchecks (`caddy version`, HTTP probe, `pg_isready`). `nextjs_app` waits for healthy DB before starting.
 - **Secured Access**: Passcode-protected control plane designed for public-facing deployments.
@@ -79,16 +81,38 @@ make clean         # remove everything (⚠️ destroys all data)
 
 ## DNS-01 Configuration
 
-Portcullis supports three TLS modes. For staging/internal networks without public port 80, use DNS-01:
+Portcullis supports these TLS modes:
+
+```text
+acme
+internal
+namecheap_tls
+cloudflare_tls
+route53_tls
+```
+
+For staging/internal networks without public port 80, use DNS-01:
 
 ```env
 # .env
 CADDY_TLS_MODE=namecheap_tls    # or cloudflare_tls, route53_tls
 CADDY_DNS_PROVIDER=namecheap    # for Docker image build
-NAMECHEAP_API_KEY=your_api_key NAMECHEAP_API_USER=your_username
+NAMECHEAP_API_KEY=your_api_key
+NAMECHEAP_API_USER=your_username
 ```
 
 Then rebuild Caddy with the DNS plugin: `make build`
+
+## Wildcard certificate spike
+
+Wildcard support is intentionally a staging spike before it becomes a dashboard feature. Use the committed safe template and runbook:
+
+```text
+sites/manual/wildcard-spike.caddy.example
+docs/p6-wildcard-certificate-spike.md
+```
+
+The template is not imported by default. Copy it to `sites/manual/wildcard-spike.caddy` only on Heimdall when ready to prove DNS-01 wildcard issuance.
 
 ## Service Migration (graduation)
 

@@ -1,0 +1,17 @@
+# P6 wildcard certificate spike template.
+#
+# This file is intentionally named .example so Caddy does not import it.
+# To run the spike on Heimdall, copy it to:
+#   sites/manual/wildcard-spike.caddy
+# Then validate and reload Caddy through the Next.js container.
+#
+# Requirements:
+# - CADDY_DNS_PROVIDER=namecheap
+# - NAMECHEAP_API_KEY and NAMECHEAP_API_USER present in the Caddy container
+# - The caddy image was built with github.com/caddy-dns/namecheap
+# - staging.lucchesi.io DNS delegates to the DNS provider used by the snippet
+
+*.staging.lucchesi.io, staging.lucchesi.io {
+  import namecheap_tls
+  respond "wildcard ok" 200
+}
