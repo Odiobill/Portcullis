@@ -14,6 +14,8 @@ import {
 } from '../../../lib/caddyfile';
 import { provisionProjectDb, decommissionProjectDb } from '../../../lib/db-provisioning';
 import { revalidatePath } from 'next/cache';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 
 export type ActionResponse = {
   success: boolean;
@@ -280,4 +282,11 @@ export async function reloadCaddyConfig(prevState?: ActionResponse | null): Prom
     console.error('[Action] Caddy reload failed:', error);
     return { success: false, message: errorMessage(error, 'Failed to reload Caddy') };
   }
+}
+
+export async function logout(formData: FormData): Promise<void> {
+  const locale = (formData.get('locale') as string | null) || 'en';
+  const cookieStore = await cookies();
+  cookieStore.delete('portcullis_session');
+  redirect(`/${locale}/login`);
 }

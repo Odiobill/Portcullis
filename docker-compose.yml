@@ -17,6 +17,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./sites:/etc/caddy/sites:ro
       - /srv/sites:/srv/sites:ro
+      - ./data/caddy_logs:/var/log/caddy
       - ./data/caddy_data:/data
       - ./data/caddy_config:/config
     networks:
@@ -58,9 +59,13 @@ services:
       - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@portcullis_db:5432/${DB_NAME}?schema=public
       - CADDY_ADMIN_API=http://caddy:2019
       - CADDY_ADMIN_ADDRESS=http://caddy:2019
+      - CADDY_LOG_PATH=/var/log/caddy/portcullis.log
+      - BACKUP_DIR=/backups
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./sites:/etc/caddy/sites
+      - ./data/caddy_logs:/var/log/caddy:ro
+      - backup_data:/backups:ro
     depends_on:
       portcullis_db:
         condition: service_healthy

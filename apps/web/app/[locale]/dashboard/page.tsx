@@ -4,6 +4,9 @@ import db from '../../../lib/db';
 import ServiceCard from '../../../components/ServiceCard';
 import RegisterServiceForm from '../../../components/RegisterServiceForm';
 import CaddyReloadButton from '../../../components/CaddyReloadButton';
+import LogoutButton from '../../../components/LogoutButton';
+import CaddyLogPanel from '../../../components/CaddyLogPanel';
+import BackupPanel from '../../../components/BackupPanel';
 import { availableTlsModes } from '../../../lib/caddyfile';
 import LanguageSwitcher from '../../../components/LanguageSwitcher';
 import { Service } from '@prisma/client';
@@ -59,6 +62,7 @@ export default async function DashboardPage({
 
         <div className="flex items-center gap-3">
           <CaddyReloadButton />
+          <LogoutButton />
           <LanguageSwitcher />
         </div>
       </header>
@@ -92,6 +96,11 @@ export default async function DashboardPage({
             </div>
           )}
         </div>
+      </div>
+
+      <div className="mt-12 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <CaddyLogPanel />
+        <BackupPanel />
       </div>
     </div>
   );

@@ -71,9 +71,10 @@
     origins localhost:2019 caddy:2019
   }
 
-  # Log to stderr (captured by Docker json-file driver with rotation)
+  # File-based logs are mounted read-only into Next.js for the dashboard viewer.
   log {
-    output stderr
+    output file /var/log/caddy/portcullis.log
+    format json
     level INFO
   }
 }

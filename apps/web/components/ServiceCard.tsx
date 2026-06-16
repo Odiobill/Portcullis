@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { ExternalLink, Database, Trash2, Globe, Server, Hash, Pencil, Save, X } from 'lucide-react';
+import { ExternalLink, Database, Trash2, Globe, Server, Hash, Pencil, Save, X, Copy, Check } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { removeService, updateService } from '../app/[locale]/dashboard/actions';
 import type { TlsModeOption } from './RegisterServiceForm';
@@ -27,9 +27,13 @@ export default function ServiceCard({ service, tlsModes }: ServiceCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState<{ success: boolean; text: string } | null>(null);
+  const [copiedValue, setCopiedValue] = useState<string | null>(null);
 
   const primaryDomain = service.domains[0];
   const isStatic = service.serviceType === 'static';
+  const dbConnectionTemplate = service.dbName && service.dbUser
+    ? `postgresql://${service.dbUser}:***@portcullis_db:5432/${service.dbName}`
+    : null;
 
   const [serviceType, setServiceType] = useState<'proxy' | 'static'>(isStatic ? 'static' : 'proxy');
   const [domainInput, setDomainInput] = useState(service.domains.join(', '));
@@ -62,6 +66,23 @@ export default function ServiceCard({ service, tlsModes }: ServiceCardProps) {
       }
     });
   };
+
+  const copyToClipboard = (value: string) => {
+    navigator.clipboard.writeText(value);
+    setCopiedValue(value);
+    setTimeout(() => setCopiedValue(null), 2000);
+  };
+
+  const renderCopyButton = (value: string) => (
+    <button
+      type="button"
+      onClick={() => copyToClipboard(value)}
+      className="rounded-lg p-1.5 text-white/30 transition-colors hover:bg-white/10 hover:text-white"
+      title="Copy"
+    >
+      {copiedValue === value ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+    </button>
+  );
 
   return (
     <div className="group relative overflow-hidden rounded-[2rem] border border-white/5 bg-card/40 p-8 backdrop-blur-xl transition-all hover:border-white/10 hover:shadow-2xl hover:shadow-accent-cyan/5">
@@ -262,12 +283,28 @@ export default function ServiceCard({ service, tlsModes }: ServiceCardProps) {
                 <span className="text-[9px] uppercase tracking-wider text-white/30">TLS: {service.tlsMode}</span>
               </div>
 
-              {service.dbName && (
-                <div className="flex items-center gap-3 rounded-xl bg-white/[0.03] p-3 border border-white/5">
-                  <Database size={16} className="text-accent-cyan" />
-                  <div className="flex flex-col">
-                    <span className="text-[11px] font-mono font-bold text-white/70 leading-none">{service.dbName}</span>
-                    <span className="text-[9px] font-mono font-bold text-white/30 uppercase mt-1">User: {service.dbUser}</span>
+              {service.dbName && service.dbUser && dbConnectionTemplate && (
+                <div className="space-y-3 rounded-xl bg-white/[0.03] p-3 border border-white/5">
+                  <div className="flex items-center gap-3">
+                    <Database size={16} className="text-accent-cyan" />
+                    <div className="min-w-0 flex-1">
+                      <span className="block truncate text-[11px] font-mono font-bold text-white/70 leading-none">{service.dbName}</span>
+                      <span className="text-[9px] font-mono font-bold text-white/30 uppercase mt-1">User: {service.dbUser}</span>
+                    </div>
+                  </div>
+                  <div className="grid gap-2 text-[10px]">
+                    <div className="flex items-center justify-between gap-2 rounded-lg bg-black/20 px-2 py-1.5">
+                      <span className="truncate font-mono text-white/50">host: portcullis_db</span>
+                      {renderCopyButton('portcullis_db')}
+                    </div>
+                    <div className="flex items-center justify-between gap-2 rounded-lg bg-black/20 px-2 py-1.5">
+                      <span className="truncate font-mono text-white/50">port: 5432</span>
+                      {renderCopyButton('5432')}
+                    </div>
+                    <div className="flex items-center justify-between gap-2 rounded-lg bg-black/20 px-2 py-1.5">
+                      <span className="truncate font-mono text-white/50">{dbConnectionTemplate}</span>
+                      {renderCopyButton(dbConnectionTemplate)}
+                    </div>
                   </div>
                 </div>
               )}
