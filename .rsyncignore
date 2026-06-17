@@ -43,6 +43,8 @@ Thumbs.db
 
 # Project specific
 data/
+sites/generated/
+sites/manual/
 docs/
 AGENTS.md
 CLAUDE.md

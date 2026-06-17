@@ -77,7 +77,7 @@ export default function ServiceCard({ service, tlsModes }: ServiceCardProps) {
     <button
       type="button"
       onClick={() => copyToClipboard(value)}
-      className="rounded-lg p-1.5 text-white/30 transition-colors hover:bg-white/10 hover:text-white"
+      className="shrink-0 rounded-lg p-1.5 text-white/30 transition-colors hover:bg-white/10 hover:text-white"
       title="Copy"
     >
       {copiedValue === value ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
@@ -89,13 +89,13 @@ export default function ServiceCard({ service, tlsModes }: ServiceCardProps) {
       {/* Glow Effect */}
       <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-accent-cyan/10 blur-3xl transition-opacity opacity-0 group-hover:opacity-100" />
 
-      <div className="relative z-10 flex items-start justify-between">
-        <div className="flex items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/5 text-accent-cyan border border-white/5 shadow-inner">
+      <div className="relative z-10 flex items-start justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/5 text-accent-cyan border border-white/5 shadow-inner">
             <Globe size={24} />
           </div>
-          <div className="flex flex-col">
-            <h3 className="text-xl font-black tracking-tight text-white leading-tight">
+          <div className="flex min-w-0 flex-col">
+            <h3 className="truncate text-xl font-black tracking-tight text-white leading-tight" title={primaryDomain}>
               {primaryDomain}
             </h3>
             <div className="flex items-center gap-1.5 mt-1 text-[10px] font-black uppercase tracking-widest text-white/20">
@@ -113,7 +113,7 @@ export default function ServiceCard({ service, tlsModes }: ServiceCardProps) {
           </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2">
           <button
             onClick={() => {
               setIsEditing(!isEditing);
@@ -250,9 +250,9 @@ export default function ServiceCard({ service, tlsModes }: ServiceCardProps) {
             {service.domains.length > 1 && (
               <div className="space-y-2">
                 <p className="text-[10px] font-black uppercase tracking-widest text-white/20">Hostnames</p>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex min-w-0 flex-wrap gap-2">
                   {service.domains.map((d, i) => (
-                    <span key={i} className="rounded-lg bg-white/5 px-2.5 py-1 text-[11px] font-bold text-white/60 border border-white/5">
+                    <span key={i} className="max-w-full truncate rounded-lg bg-white/5 px-2.5 py-1 text-[11px] font-bold text-white/60 border border-white/5" title={d}>
                       {d}
                     </span>
                   ))}
@@ -262,47 +262,47 @@ export default function ServiceCard({ service, tlsModes }: ServiceCardProps) {
 
             <div className="grid grid-cols-1 gap-4">
               {isStatic && service.staticRoot ? (
-                <div className="flex items-center gap-3 rounded-xl bg-white/[0.03] p-3 border border-white/5">
-                  <Globe size={16} className="text-accent-cyan" />
-                  <div className="flex flex-col">
-                    <span className="text-xs font-bold text-white/70 font-mono">{service.staticRoot}</span>
+                <div className="flex min-w-0 items-center gap-3 rounded-xl bg-white/[0.03] p-3 border border-white/5">
+                  <Globe size={16} className="shrink-0 text-accent-cyan" />
+                  <div className="flex min-w-0 flex-col">
+                    <span className="block truncate text-xs font-bold text-white/70 font-mono" title={service.staticRoot}>{service.staticRoot}</span>
                     <span className="text-[9px] uppercase tracking-wider text-white/30">Static files</span>
                   </div>
                 </div>
               ) : service.upstreamContainer && service.upstreamPort ? (
-                <div className="flex items-center gap-3 rounded-xl bg-white/[0.03] p-3 border border-white/5">
-                  <Server size={16} className="text-accent-purple" />
-                  <span className="text-xs font-bold text-white/70 font-mono">
+                <div className="flex min-w-0 items-center gap-3 rounded-xl bg-white/[0.03] p-3 border border-white/5">
+                  <Server size={16} className="shrink-0 text-accent-purple" />
+                  <span className="block truncate text-xs font-bold text-white/70 font-mono" title={`${service.upstreamContainer}:${service.upstreamPort}`}>
                     {service.upstreamContainer}:{service.upstreamPort}
                   </span>
                 </div>
               ) : null}
 
-              <div className="flex items-center gap-3 rounded-xl bg-white/[0.03] p-3 border border-white/5">
-                <Globe size={16} className="text-accent-cyan" />
-                <span className="text-[9px] uppercase tracking-wider text-white/30">TLS: {service.tlsMode}</span>
+              <div className="flex min-w-0 items-center gap-3 rounded-xl bg-white/[0.03] p-3 border border-white/5">
+                <Globe size={16} className="shrink-0 text-accent-cyan" />
+                <span className="truncate text-[9px] uppercase tracking-wider text-white/30">TLS: {service.tlsMode}</span>
               </div>
 
               {service.dbName && service.dbUser && dbConnectionTemplate && (
                 <div className="space-y-3 rounded-xl bg-white/[0.03] p-3 border border-white/5">
                   <div className="flex items-center gap-3">
-                    <Database size={16} className="text-accent-cyan" />
+                    <Database size={16} className="shrink-0 text-accent-cyan" />
                     <div className="min-w-0 flex-1">
-                      <span className="block truncate text-[11px] font-mono font-bold text-white/70 leading-none">{service.dbName}</span>
-                      <span className="text-[9px] font-mono font-bold text-white/30 uppercase mt-1">User: {service.dbUser}</span>
+                      <span className="block truncate text-[11px] font-mono font-bold text-white/70 leading-none" title={service.dbName}>{service.dbName}</span>
+                      <span className="mt-1 block truncate text-[9px] font-mono font-bold text-white/30 uppercase" title={`User: ${service.dbUser}`}>User: {service.dbUser}</span>
                     </div>
                   </div>
                   <div className="grid gap-2 text-[10px]">
                     <div className="flex items-center justify-between gap-2 rounded-lg bg-black/20 px-2 py-1.5">
-                      <span className="truncate font-mono text-white/50">host: portcullis_db</span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-white/50">host: portcullis_db</span>
                       {renderCopyButton('portcullis_db')}
                     </div>
                     <div className="flex items-center justify-between gap-2 rounded-lg bg-black/20 px-2 py-1.5">
-                      <span className="truncate font-mono text-white/50">port: 5432</span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-white/50">port: 5432</span>
                       {renderCopyButton('5432')}
                     </div>
                     <div className="flex items-center justify-between gap-2 rounded-lg bg-black/20 px-2 py-1.5">
-                      <span className="truncate font-mono text-white/50">{dbConnectionTemplate}</span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-white/50" title={dbConnectionTemplate}>{dbConnectionTemplate}</span>
                       {renderCopyButton(dbConnectionTemplate)}
                     </div>
                   </div>

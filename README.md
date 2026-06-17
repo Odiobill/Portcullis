@@ -1,4 +1,4 @@
-# Portcullis — Secure Public Frontend Manager
+# Portcullis - Secure Public Frontend Manager
 
 Portcullis is a secure control plane for public servers hosting multiple services. It leverages Caddy, Next.js, and Postgres to provide a professional registration and management interface for multi-tenant environments, optionally sharing a single database instance.
 
@@ -14,10 +14,10 @@ Portcullis is a secure control plane for public servers hosting multiple service
 - **DNS-01 TLS**: Modular DNS challenge support for staging/internal networks without public ports. Per-provider Caddyfile snippets for NameCheap, Cloudflare, and Route53.
 - **Static File Serving**: Register static sites served directly by Caddy from `/srv/sites/<domain>`, without an app container.
 - **Automatic Backups**: Nightly `pg_dump -Fc` per service with daily/weekly/monthly retention tiers (7/4/3). Sidecar container, enabled via `--profile backup`; dashboard lists and downloads backups read-only.
-- **On-Demand Dump API**: `POST /api/services/[id]/dump` — passcode-protected, rate-limited, streaming dump for service migration.
-- **Container Healthchecks**: All three core containers monitored with Docker healthchecks (`caddy version`, HTTP probe, `pg_isready`). `nextjs_app` waits for healthy DB before starting.
+- **On-Demand Dump API**: `POST /api/services/[id]/dump`, passcode-protected, rate-limited, streaming dump for service migration.
+- **Container Healthchecks**: All three core containers monitored with Docker healthchecks (`caddy version`, `/api/health`, `pg_isready`). `nextjs_app` waits for healthy DB before starting.
 - **Secured Access**: Passcode-protected control plane designed for public-facing deployments.
-- **Modern UI**: Next.js 16.2 App Router with Rspack, Tailwind CSS, and premium dark branding.
+- **Modern UI**: Next.js 16.2 App Router with Rspack, Tailwind CSS, premium dark branding, truncation-safe service cards, and refreshable Caddy log viewing.
 - **PWA Ready**: Installable on mobile for total control on the go.
 - **Secure Architecture**: Multi-network Docker setup isolating projects from the control plane and from each other.
 - **Resource Limits**: Configured `mem_limit` and `cpus` on all containers to prevent runaway processes.
@@ -54,10 +54,57 @@ make up       # start stack (without backup sidecar)
 # or: make up-all  # start with backup sidecar
 ```
 
-### 4. Initialize Database
+### 4. Verify Startup
+
+Database migrations run automatically from `apps/web/entrypoint.sh` when `portcullis_nextjs_app` starts. Do not run Prisma migrations manually after a normal deploy.
+
 ```bash
-docker exec -it portcullis_nextjs_app ./node_modules/.bin/prisma migrate deploy
+docker compose ps
+docker logs --tail 100 portcullis_nextjs_app
+
+docker exec portcullis_nextjs_app node -e "require('http').get('http://localhost:3000/api/health', r => { console.log(r.statusCode); process.exit(r.statusCode === 200 ? 0 : 1); }).on('error', e => { console.error(e); process.exit(1); })"
 ```
+
+Expected health probe output: `200`.
+
+## Staging rsync deployment
+
+For Heimdall-style staging deploys, sync from the repository root with `.rsyncignore` so runtime state is preserved:
+
+```bash
+rsync -az --delete --exclude-from=.rsyncignore \
+  ./ \
+  dietpi@Heimdall:/srv/portcullis/
+```
+
+The ignore file protects local dependencies, build outputs, secrets, Postgres data, and operator/runtime Caddy state:
+
+```text
+.env
+data/
+sites/generated/
+sites/manual/
+node_modules/
+.next/
+```
+
+Then on the server:
+
+```bash
+cd /srv/portcullis
+docker compose up --build -d
+```
+
+If staging data can be discarded and the Postgres credentials or schema need a full reset, remove the bind-mounted database directory:
+
+```bash
+cd /srv/portcullis
+docker compose down --remove-orphans
+sudo rm -rf data/pg_data
+docker compose up --build -d
+```
+
+This is necessary because Postgres uses a bind mount at `./data/pg_data`; `docker compose down -v` does not remove that directory.
 
 ## Makefile Reference
 
