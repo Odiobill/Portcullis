@@ -68,43 +68,75 @@ const getSQL = `SELECT ` + selectColumns + ` FROM services WHERE id = $1`
 
 const listSQL = `SELECT ` + selectColumns + ` FROM services ORDER BY id`
 
+// sqlOptional maps an absent optional value to SQL NULL; the schema's
+// type-discriminant CHECK requires absent fields to be NULL, not zero
+// values.
+func sqlOptional(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// repositoryArgs maps a validated service to the positional parameters of
+// createSQL/updateSQL. Fields not belonging to the service type are SQL
+// NULL (proxy: no static_root; static: no proxy_container/proxy_port), as
+// are blank optional DB identifiers.
+func repositoryArgs(s Service) []any {
+	var container, port, root any
+	switch s.Type {
+	case TypeProxy:
+		container, port = s.ProxyContainer, int32(s.ProxyPort)
+	case TypeStatic:
+		root = s.StaticRoot
+	}
+	return []any{s.ID, string(s.Type), s.Domains, string(s.TLSMode), container, port, root,
+		sqlOptional(s.DBName), sqlOptional(s.DBUser)}
+}
+
 // Create persists a new service. The service is validated first so invalid
 // data can never reach SQL.
 func (r *PostgresRepository) Create(ctx context.Context, s Service) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
-	_, err := r.db.Exec(ctx, createSQL,
-		s.ID, string(s.Type), s.Domains, string(s.TLSMode),
-		s.ProxyContainer, int32(s.ProxyPort), s.StaticRoot, s.DBName, s.DBUser)
+	_, err := r.db.Exec(ctx, createSQL, repositoryArgs(s)...)
 	if err != nil {
 		return fmt.Errorf("registry: insert service %q: %w", s.ID, err)
 	}
 	return nil
 }
 
-// Update persists changes to an existing service (keyed by its immutable ID).
+// Update persists changes to an existing service (keyed by its immutable
+// ID). A zero-row result means the record does not exist and returns
+// ErrNotFound instead of a false success.
 func (r *PostgresRepository) Update(ctx context.Context, s Service) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
-	_, err := r.db.Exec(ctx, updateSQL,
-		s.ID, string(s.Type), s.Domains, string(s.TLSMode),
-		s.ProxyContainer, int32(s.ProxyPort), s.StaticRoot, s.DBName, s.DBUser)
+	tag, err := r.db.Exec(ctx, updateSQL, repositoryArgs(s)...)
 	if err != nil {
 		return fmt.Errorf("registry: update service %q: %w", s.ID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("registry: update service %q: %w", s.ID, ErrNotFound)
 	}
 	return nil
 }
 
-// Delete removes the service record keyed by its immutable ID.
+// Delete removes the service record keyed by its immutable ID. A zero-row
+// result means the record does not exist and returns ErrNotFound instead
+// of a false success.
 func (r *PostgresRepository) Delete(ctx context.Context, id string) error {
 	if err := validateID(id); err != nil {
 		return err
 	}
-	_, err := r.db.Exec(ctx, deleteSQL, id)
+	tag, err := r.db.Exec(ctx, deleteSQL, id)
 	if err != nil {
 		return fmt.Errorf("registry: delete service %q: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("registry: delete service %q: %w", id, ErrNotFound)
 	}
 	return nil
 }

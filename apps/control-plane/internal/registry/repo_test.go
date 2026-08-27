@@ -89,6 +89,9 @@ type fakeExecutor struct {
 	execSQL  []string
 	execArgs [][]any
 	execErr  error
+	// execTag, when set, is the command tag returned by Exec (nil = a
+	// one-row tag).
+	execTag *pgconn.CommandTag
 
 	querySQL []string
 	queryArg [][]any
@@ -105,6 +108,9 @@ func (f *fakeExecutor) Exec(_ context.Context, sql string, args ...any) (pgconn.
 	f.execArgs = append(f.execArgs, args)
 	if f.execErr != nil {
 		return pgconn.CommandTag{}, f.execErr
+	}
+	if f.execTag != nil {
+		return *f.execTag, nil
 	}
 	return pgconn.NewCommandTag("INSERT 0 1"), nil
 }
@@ -136,6 +142,118 @@ func repoService() Service {
 	}
 }
 
+func TestRepoCreateMapsProxyOptionalFieldsToSQLNull(t *testing.T) {
+	db := &fakeExecutor{}
+	repo := NewPostgresRepository(db)
+	s := repoService() // proxy: no static root; blank optional DB identifiers
+
+	if err := repo.Create(context.Background(), s); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	wantArgs := []any{s.ID, string(TypeProxy), s.Domains, string(TLSACME), s.ProxyContainer, int32(s.ProxyPort), nil, nil, nil}
+	if !reflect.DeepEqual(db.execArgs[0], wantArgs) {
+		t.Errorf("proxy args = %v, want %v (static_root, db_name, db_user must be SQL NULL)", db.execArgs[0], wantArgs)
+	}
+}
+
+func TestRepoCreateMapsStaticOptionalFieldsToSQLNull(t *testing.T) {
+	db := &fakeExecutor{}
+	repo := NewPostgresRepository(db)
+	s := validStaticService() // static: no proxy container/port
+
+	if err := repo.Create(context.Background(), s); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	wantArgs := []any{s.ID, string(TypeStatic), s.Domains, string(TLSInternal), nil, nil, s.StaticRoot, nil, nil}
+	if !reflect.DeepEqual(db.execArgs[0], wantArgs) {
+		t.Errorf("static args = %v, want %v (proxy_container, proxy_port, db identifiers must be SQL NULL)", db.execArgs[0], wantArgs)
+	}
+}
+
+func TestRepoUpdateMapsOptionalFieldsToSQLNull(t *testing.T) {
+	db := &fakeExecutor{}
+	repo := NewPostgresRepository(db)
+	proxy := repoService()
+	static := validStaticService()
+
+	if err := repo.Update(context.Background(), proxy); err != nil {
+		t.Fatalf("Update(proxy): %v", err)
+	}
+	wantProxy := []any{proxy.ID, string(TypeProxy), proxy.Domains, string(TLSACME), proxy.ProxyContainer, int32(proxy.ProxyPort), nil, nil, nil}
+	if !reflect.DeepEqual(db.execArgs[0], wantProxy) {
+		t.Errorf("proxy update args = %v, want %v", db.execArgs[0], wantProxy)
+	}
+	if err := repo.Update(context.Background(), static); err != nil {
+		t.Fatalf("Update(static): %v", err)
+	}
+	wantStatic := []any{static.ID, string(TypeStatic), static.Domains, string(TLSInternal), nil, nil, static.StaticRoot, nil, nil}
+	if !reflect.DeepEqual(db.execArgs[1], wantStatic) {
+		t.Errorf("static update args = %v, want %v", db.execArgs[1], wantStatic)
+	}
+}
+
+func TestRepoCreateMapsPresentOptionalDBIdentifiers(t *testing.T) {
+	db := &fakeExecutor{}
+	repo := NewPostgresRepository(db)
+	s := repoService()
+	s.DBName = "svc_alpha_db"
+	s.DBUser = "svc_alpha_user"
+	if err := repo.Create(context.Background(), s); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	wantArgs := []any{s.ID, string(TypeProxy), s.Domains, string(TLSACME), s.ProxyContainer, int32(s.ProxyPort), nil, "svc_alpha_db", "svc_alpha_user"}
+	if !reflect.DeepEqual(db.execArgs[0], wantArgs) {
+		t.Errorf("args = %v, want %v (present DB identifiers must be passed through)", db.execArgs[0], wantArgs)
+	}
+}
+
+func TestRepoUpdateZeroRowsReturnsNotFound(t *testing.T) {
+	zero := pgconn.NewCommandTag("UPDATE 0")
+	db := &fakeExecutor{execTag: &zero}
+	repo := NewPostgresRepository(db)
+	err := repo.Update(context.Background(), repoService())
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("zero-row Update must return ErrNotFound, got %v", err)
+	}
+}
+
+func TestRepoDeleteZeroRowsReturnsNotFound(t *testing.T) {
+	zero := pgconn.NewCommandTag("DELETE 0")
+	db := &fakeExecutor{execTag: &zero}
+	repo := NewPostgresRepository(db)
+	err := repo.Delete(context.Background(), "svc-alpha")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("zero-row Delete must return ErrNotFound, got %v", err)
+	}
+}
+
+func TestRepoUpdatePreservesExecutionError(t *testing.T) {
+	boom := errors.New("db down")
+	db := &fakeExecutor{execErr: boom}
+	repo := NewPostgresRepository(db)
+	if err := repo.Update(context.Background(), repoService()); !errors.Is(err, boom) {
+		t.Fatalf("want wrapped execution error, got %v", err)
+	}
+}
+
+func TestRepoUpdateOneRowSucceeds(t *testing.T) {
+	one := pgconn.NewCommandTag("UPDATE 1")
+	db := &fakeExecutor{execTag: &one}
+	repo := NewPostgresRepository(db)
+	if err := repo.Update(context.Background(), repoService()); err != nil {
+		t.Fatalf("one-row Update must succeed, got %v", err)
+	}
+}
+
+func TestRepoDeleteOneRowSucceeds(t *testing.T) {
+	one := pgconn.NewCommandTag("DELETE 1")
+	db := &fakeExecutor{execTag: &one}
+	repo := NewPostgresRepository(db)
+	if err := repo.Delete(context.Background(), "svc-alpha"); err != nil {
+		t.Fatalf("one-row Delete must succeed, got %v", err)
+	}
+}
+
 func TestRepoCreateUsesParameterizedInsert(t *testing.T) {
 	db := &fakeExecutor{}
 	repo := NewPostgresRepository(db)
@@ -157,7 +275,7 @@ func TestRepoCreateUsesParameterizedInsert(t *testing.T) {
 	if strings.Contains(sql, s.ID) || strings.Contains(sql, "app.example.com") {
 		t.Error("user data must not be interpolated into SQL text")
 	}
-	wantArgs := []any{s.ID, string(TypeProxy), s.Domains, string(TLSACME), s.ProxyContainer, int32(s.ProxyPort), "", "", ""}
+	wantArgs := []any{s.ID, string(TypeProxy), s.Domains, string(TLSACME), s.ProxyContainer, int32(s.ProxyPort), nil, nil, nil}
 	if !reflect.DeepEqual(db.execArgs[0], wantArgs) {
 		t.Errorf("args = %v, want %v", db.execArgs[0], wantArgs)
 	}
