@@ -61,6 +61,9 @@ func (st *Store) generatedFilePath(serviceID string) (string, error) {
 // active Caddy configuration (validate + reload); the original failure is
 // always returned.
 func (st *Store) Deploy(s Service) error {
+	if err := st.mutationGuard(); err != nil {
+		return err
+	}
 	content, err := GenerateSiteBlock(s)
 	if err != nil {
 		return err
@@ -98,6 +101,9 @@ func (st *Store) Deploy(s Service) error {
 // active configuration is re-applied; the original failure is returned.
 // Removing a service with no generated file is a no-op.
 func (st *Store) Remove(serviceID string) error {
+	if err := st.mutationGuard(); err != nil {
+		return err
+	}
 	path, err := st.generatedFilePath(serviceID)
 	if err != nil {
 		return err
@@ -177,12 +183,25 @@ func writeFileAtomic(path string, content string) error {
 // manual directory that this package never touches.
 const ManualDirName = "manual"
 
-// EnsureGeneratedDirIsNotManual is a compile-time-readable guard used by
-// callers wiring configuration; it rejects a generated directory whose base
-// name is the manual directory.
+// EnsureGeneratedDirIsNotManual rejects a configured generated directory
+// that is the manual directory or nested beneath it: any path segment
+// named "manual" (case-insensitive) is rejected conservatively, since a
+// Store scoped to such a path could mutate operator-owned files. Arbitrary
+// generated directories that merely contain "manual" as a substring of a
+// longer segment remain allowed.
 func EnsureGeneratedDirIsNotManual(dir string) error {
-	if strings.EqualFold(filepath.Base(dir), ManualDirName) {
-		return fmt.Errorf("registry: %q must not be the manual directory", dir)
+	cleaned := filepath.Clean(dir)
+	for _, segment := range strings.Split(cleaned, string(filepath.Separator)) {
+		if strings.EqualFold(segment, ManualDirName) {
+			return fmt.Errorf("registry: generated directory %q must not be or be nested beneath the manual directory", dir)
+		}
 	}
 	return nil
+}
+
+// mutationGuard fails closed before any filesystem or operator effect when
+// the configured generated directory is (or nests beneath) the manual
+// directory. Every mutation entry point must call it first.
+func (st *Store) mutationGuard() error {
+	return EnsureGeneratedDirIsNotManual(st.dir)
 }

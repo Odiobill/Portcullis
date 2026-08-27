@@ -7,7 +7,7 @@ CREATE TABLE services (
     -- never derived from user input). Used as the generated Caddyfile name.
     id              TEXT PRIMARY KEY,
     service_type    TEXT NOT NULL CHECK (service_type IN ('proxy', 'static')),
-    domains         TEXT[] NOT NULL CHECK (array_length(domains, 1) >= 1),
+    domains         TEXT[] NOT NULL CHECK (cardinality(domains) >= 1),
     tls_mode        TEXT NOT NULL
                     CHECK (tls_mode IN ('acme', 'internal', 'namecheap_tls', 'cloudflare_tls', 'route53_tls')),
     -- Proxy services only.
