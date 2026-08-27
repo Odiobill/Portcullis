@@ -85,6 +85,14 @@ var allowedTLSModes = map[TLSMode]bool{
 
 var allowedServiceTypes = map[ServiceType]bool{TypeProxy: true, TypeStatic: true}
 
+// validateID checks a bare service ID (repository lookups and deletion).
+func validateID(id string) error {
+	if !serviceIDRe.MatchString(id) || disallowedRe.MatchString(id) || strings.ContainsRune(id, 0) {
+		return fmt.Errorf("registry: invalid service ID %q", id)
+	}
+	return nil
+}
+
 // Validate reports whether the service is safe to persist and generate.
 // Every rejection is fail-closed: the caller must not persist or generate
 // from an invalid Service.
@@ -101,10 +109,16 @@ func (s Service) Validate() error {
 	if len(s.Domains) == 0 {
 		return errors.New("registry: at least one domain is required")
 	}
+	seen := make(map[string]bool, len(s.Domains))
 	for _, d := range s.Domains {
 		if !hostnameRe.MatchString(d) || disallowedRe.MatchString(d) || strings.ContainsRune(d, 0) {
 			return fmt.Errorf("registry: invalid domain %q", d)
 		}
+		n := NormalizeDomain(d)
+		if seen[n] {
+			return fmt.Errorf("registry: duplicate domain %q", d)
+		}
+		seen[n] = true
 	}
 
 	switch s.Type {
@@ -168,7 +182,29 @@ func validateStaticRoot(root string) error {
 }
 
 // NormalizeDomain returns the lowercased canonical form of a domain.
-// Validation happens in Service.Validate; this is for storage formatting.
 func NormalizeDomain(domain string) string {
-	return strings.ToLower(strings.TrimSuffix(strings.ToLower(domain), "."))
+	return strings.ToLower(strings.TrimSuffix(domain, "."))
+}
+
+// NormalizeDomains lowercases and trims each domain and rejects the result
+// when two inputs normalize to the same value, preventing duplicate or
+// collision-ambiguous stored domains within one service.
+func NormalizeDomains(domains []string) ([]string, error) {
+	if len(domains) == 0 {
+		return nil, errors.New("registry: at least one domain is required")
+	}
+	seen := make(map[string]bool, len(domains))
+	out := make([]string, 0, len(domains))
+	for _, d := range domains {
+		n := NormalizeDomain(d)
+		if n == "" || !hostnameRe.MatchString(n) {
+			return nil, fmt.Errorf("registry: invalid domain %q", d)
+		}
+		if seen[n] {
+			return nil, fmt.Errorf("registry: duplicate domain %q", d)
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	return out, nil
 }

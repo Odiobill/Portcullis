@@ -8,7 +8,15 @@
     body { font-family: system-ui, sans-serif; background: #101418; color: #e6e6e6; margin: 0; }
     header { display: flex; align-items: center; justify-content: space-between;
              padding: 1rem 2rem; background: #1a2026; }
-    main { padding: 2rem; }
+    main { padding: 2rem; max-width: 60rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #2a323c; font-size: 0.95rem; }
+    a { color: #60a5fa; }
+    button { padding: 0.35rem 0.75rem; border: 0; border-radius: 4px; background: #3b82f6;
+             color: #fff; cursor: pointer; }
+    .danger { background: #dc2626; }
+    .error { color: #f87171; }
+    .muted { color: #9ca3af; }
   </style>
 </head>
 <body>
@@ -17,8 +25,35 @@
     <form method="post" action="/logout"><button type="submit">Sign out</button></form>
   </header>
   <main>
-    <p>Signed in as the owner. This is a placeholder dashboard.</p>
-    <p>Service registration, Caddy management, and backup features arrive in later slices.</p>
+    {{if not .RegistryAvailable}}
+      <p class="muted">Service management is not available in this build. The registry has not been connected yet.</p>
+    {{else}}
+      {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+      <p><a href="/services/new">Add service</a></p>
+      {{if .Services}}
+      <table>
+        <tr><th>Service ID</th><th>Type</th><th>Domains</th><th>TLS mode</th><th>Target</th><th>Actions</th></tr>
+        {{range .Services}}
+        <tr>
+          <td>{{.ID}}</td>
+          <td>{{.Type}}</td>
+          <td>{{range .Domains}}{{.}} {{end}}</td>
+          <td>{{.TLSMode}}</td>
+          <td>{{if eq (print .Type) "proxy"}}{{.ProxyContainer}}:{{.ProxyPort}}{{else}}{{.StaticRoot}}{{end}}</td>
+          <td>
+            <a href="/services/{{.ID}}/edit">Edit</a>
+            <form method="post" action="/services/{{.ID}}/delete" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button type="submit" class="danger">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </table>
+      {{else}}
+      <p class="muted">No services are registered yet. Add your first reverse-proxy or static service.</p>
+      {{end}}
+    {{end}}
   </main>
 </body>
 </html>

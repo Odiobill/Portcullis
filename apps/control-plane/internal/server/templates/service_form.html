@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{if .IsEdit}}Edit service{{else}}Add service{{end}} — Portcullis</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #101418; color: #e6e6e6; margin: 0; }
+    header { display: flex; align-items: center; justify-content: space-between;
+             padding: 1rem 2rem; background: #1a2026; }
+    main { padding: 2rem; max-width: 36rem; }
+    label { display: block; margin: 0.75rem 0 0.25rem; font-size: 0.9rem; }
+    input, select, textarea { width: 100%; padding: 0.5rem; border-radius: 4px;
+             border: 1px solid #3a4450; background: #101418; color: #e6e6e6; box-sizing: border-box; }
+    button { margin-top: 1rem; padding: 0.5rem 1.25rem; border: 0; border-radius: 4px;
+             background: #3b82f6; color: #fff; font-size: 1rem; cursor: pointer; }
+    .error { color: #f87171; font-size: 0.9rem; }
+    .hint { color: #9ca3af; font-size: 0.8rem; }
+    a { color: #60a5fa; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>{{if .IsEdit}}Edit service{{else}}Add service{{end}}</h1>
+    <a href="/dashboard">Back to dashboard</a>
+  </header>
+  <main>
+    {{if .Errors}}
+      <ul class="error">
+        {{range .Errors}}<li>{{.}}</li>{{end}}
+      </ul>
+    {{end}}
+    <form method="post" action="{{.Action}}">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      {{if .IsEdit}}<p class="hint">Service ID: {{.ID}} (immutable)</p>{{end}}
+
+      <label for="service_type">Service type</label>
+      <select name="service_type" id="service_type">
+        <option value="proxy" {{if eq .Type "proxy"}}selected{{end}}>Reverse proxy</option>
+        <option value="static" {{if eq .Type "static"}}selected{{end}}>Static site</option>
+      </select>
+
+      <label for="domains">Domains</label>
+      <input type="text" id="domains" name="domains" value="{{.Domains}}"
+             placeholder="app.example.com, alt.example.com" required>
+      <p class="hint">Comma-separated. Wildcards like *.example.com are allowed.</p>
+
+      <label for="tls_mode">TLS mode</label>
+      <select name="tls_mode" id="tls_mode">
+        <option value="acme" {{if eq .TLSMode "acme"}}selected{{end}}>ACME (HTTP-01)</option>
+        <option value="internal" {{if eq .TLSMode "internal"}}selected{{end}}>Internal CA</option>
+        <option value="namecheap_tls" {{if eq .TLSMode "namecheap_tls"}}selected{{end}}>DNS-01, Namecheap</option>
+        <option value="cloudflare_tls" {{if eq .TLSMode "cloudflare_tls"}}selected{{end}}>DNS-01, Cloudflare</option>
+        <option value="route53_tls" {{if eq .TLSMode "route53_tls"}}selected{{end}}>DNS-01, Route53</option>
+      </select>
+
+      <label for="proxy_container">Proxy container name</label>
+      <input type="text" id="proxy_container" name="proxy_container" value="{{.ProxyContainer}}"
+             placeholder="app_container">
+
+      <label for="proxy_port">Proxy port</label>
+      <input type="text" id="proxy_port" name="proxy_port" value="{{.ProxyPort}}" placeholder="3000">
+
+      <label for="static_root">Static root</label>
+      <input type="text" id="static_root" name="static_root" value="{{.StaticRoot}}"
+             placeholder="/srv/sites/static.example.com">
+      <p class="hint">Static sites only. Must stay inside /srv/sites/.</p>
+
+      <button type="submit">{{if .IsEdit}}Save changes{{else}}Create service{{end}}</button>
+    </form>
+  </main>
+</body>
+</html>

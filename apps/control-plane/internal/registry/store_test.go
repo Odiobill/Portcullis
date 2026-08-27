@@ -13,12 +13,18 @@ import (
 type fakeOperator struct {
 	validateErr error
 	reloadErr   error
-	calls       []string // "validate" / "reload" in call order
+	// validateErrFrom, when > 0, applies validateErr only from that 1-based
+	// call onward (0 = immediately). Used to fail only restore attempts.
+	validateErrFrom int
+	calls           []string // "validate" / "reload" in call order
 }
 
 func (f *fakeOperator) Validate() error {
 	f.calls = append(f.calls, "validate")
-	return f.validateErr
+	if f.validateErr != nil && (f.validateErrFrom == 0 || len(f.calls) >= f.validateErrFrom) {
+		return f.validateErr
+	}
+	return nil
 }
 
 func (f *fakeOperator) Reload() error {
