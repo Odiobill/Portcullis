@@ -67,65 +67,67 @@ func (m *Manager) Create(now time.Time) (token string, expires time.Time, err er
 // Verify reports whether token is a well-formed token signed by this
 // manager's secret, not expired at now, and not revoked.
 func (m *Manager) Verify(token string, now time.Time) error {
-	if token == "" {
+	id, ok := m.parseAuthenticated(token, now)
+	if !ok {
 		return ErrInvalid
 	}
-	payloadEnc, sigEnc, ok := strings.Cut(token, ".")
-	if !ok || strings.Contains(sigEnc, ".") {
-		return ErrInvalid
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(payloadEnc)
-	if err != nil {
-		return ErrInvalid
-	}
-	sig, err := base64.RawURLEncoding.DecodeString(sigEnc)
-	if err != nil {
-		return ErrInvalid
-	}
-	if !hmac.Equal(sig, m.sign(string(payload))) {
-		return ErrInvalid
-	}
-
-	parts := strings.Split(string(payload), "|")
-	if len(parts) != 3 || parts[0] != tokenVersion {
-		return ErrInvalid
-	}
-	id := parts[1]
-	var expUnix int64
-	if _, err := fmt.Sscanf(parts[2], "%d", &expUnix); err != nil {
-		return ErrInvalid
-	}
-	if now.Unix() >= expUnix {
-		return ErrInvalid
-	}
-
 	m.mu.Lock()
-	_, revoked := m.revoked[id]
-	m.mu.Unlock()
-	if revoked {
+	defer m.mu.Unlock()
+	if _, revoked := m.revoked[id]; revoked {
 		return ErrInvalid
 	}
 	return nil
 }
 
 // Revoke marks the session carried by token as invalid (logout).
-// Unknown or malformed tokens are ignored.
+// The token is fully authenticated (signature, structure, and validity)
+// before any ID enters revocation state; unauthenticated tokens are
+// ignored so public logout requests cannot grow the map.
 func (m *Manager) Revoke(token string) {
-	payloadEnc, _, ok := strings.Cut(token, ".")
+	id, ok := m.parseAuthenticated(token, time.Now())
 	if !ok {
 		return
 	}
+	m.mu.Lock()
+	m.revoked[id] = struct{}{}
+	m.mu.Unlock()
+}
+
+// parseAuthenticated validates the token's signature and structure against
+// the manager secret and reports whether it is unexpired at now. On success
+// it returns the authenticated session ID. It never consults or mutates
+// revocation state.
+func (m *Manager) parseAuthenticated(token string, now time.Time) (string, bool) {
+	if token == "" {
+		return "", false
+	}
+	payloadEnc, sigEnc, ok := strings.Cut(token, ".")
+	if !ok || strings.Contains(sigEnc, ".") {
+		return "", false
+	}
 	payload, err := base64.RawURLEncoding.DecodeString(payloadEnc)
 	if err != nil {
-		return
+		return "", false
+	}
+	sig, err := base64.RawURLEncoding.DecodeString(sigEnc)
+	if err != nil {
+		return "", false
+	}
+	if !hmac.Equal(sig, m.sign(string(payload))) {
+		return "", false
 	}
 	parts := strings.Split(string(payload), "|")
 	if len(parts) != 3 || parts[0] != tokenVersion {
-		return
+		return "", false
 	}
-	m.mu.Lock()
-	m.revoked[parts[1]] = struct{}{}
-	m.mu.Unlock()
+	var expUnix int64
+	if _, err := fmt.Sscanf(parts[2], "%d", &expUnix); err != nil {
+		return "", false
+	}
+	if now.Unix() >= expUnix {
+		return "", false
+	}
+	return parts[1], true
 }
 
 // sign computes the HMAC-SHA256 of payload under the manager secret.

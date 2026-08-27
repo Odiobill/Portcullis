@@ -1,6 +1,9 @@
 package session
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -111,6 +114,91 @@ func TestLogoutInvalidatesSession(t *testing.T) {
 	m.Revoke(token)
 	if err := m.Verify(token, time.Now()); err == nil {
 		t.Error("expected error for revoked (logged-out) token")
+	}
+}
+
+// TestRevokeIgnoresForgedTokens proves logout revocation cannot populate
+// revocation state from attacker-supplied unsigned tokens: since POST
+// /logout is public, forged cookies must never grow the map or enable
+// any revocation without a valid session signature.
+func TestRevokeIgnoresForgedTokens(t *testing.T) {
+	m := newManager(t)
+
+	future := time.Now().Add(time.Hour).Unix()
+	forgedPayload := fmt.Sprintf("v1|%x|%d", []byte("attacker-chosen-id"), future)
+	forgedSig := sha256.Sum256([]byte("not-the-session-secret"))
+	forged := base64.RawURLEncoding.EncodeToString([]byte(forgedPayload)) + "." +
+		base64.RawURLEncoding.EncodeToString(forgedSig[:])
+
+	m.Revoke(forged)
+	if len(m.revoked) != 0 {
+		t.Errorf("forged token must not populate revocation state, map = %v", m.revoked)
+	}
+	// A token signed under a different secret is equally untrusted.
+	other, err := NewManager("a-completely-different-secret-value!!", time.Hour)
+	if err != nil {
+		t.Fatalf("NewManager(other): %v", err)
+	}
+	otherToken, _, err := other.Create(time.Now())
+	if err != nil {
+		t.Fatalf("Create(other): %v", err)
+	}
+	m.Revoke(otherToken)
+	if len(m.revoked) != 0 {
+		t.Errorf("token signed under a foreign secret must not populate revocation state, map = %v", m.revoked)
+	}
+}
+
+// TestRevokeIgnoresTamperedAndExpiredTokens covers the remaining
+// unauthenticated revocation paths: a tampered signature on a genuine
+// token and a correctly signed but expired token must both be ignored.
+func TestRevokeIgnoresTamperedAndExpiredTokens(t *testing.T) {
+	m := newManager(t)
+
+	token, _, err := m.Create(time.Now())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	dot := strings.LastIndex(token, ".")
+	tampered := token[:dot+1] + "QUJDREVGR0hJSktMTU5PUA"
+	m.Revoke(tampered)
+	if len(m.revoked) != 0 {
+		t.Errorf("tampered token must not populate revocation state, map = %v", m.revoked)
+	}
+
+	expiredMgr, err := NewManager(testSecret, time.Second)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	expiredToken, _, err := expiredMgr.Create(time.Now().Add(-2 * time.Second))
+	if err != nil {
+		t.Fatalf("Create(expired): %v", err)
+	}
+	expiredMgr.Revoke(expiredToken)
+	if len(expiredMgr.revoked) != 0 {
+		t.Errorf("expired token must not populate revocation state, map = %v", expiredMgr.revoked)
+	}
+}
+
+// TestForgedLogoutCannotRevokeGenuineSession proves the end-to-end harm is
+// closed: logging out with a forged cookie must not invalidate any session
+// the attacker did not legitimately hold.
+func TestForgedLogoutCannotRevokeGenuineSession(t *testing.T) {
+	m := newManager(t)
+	genuine, _, err := m.Create(time.Now())
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Attacker forges a token claiming the genuine session's ID but with a
+	// bogus signature, and presents it at logout.
+	genuinePayloadEnc := genuine[:strings.Index(genuine, ".")]
+	forgedSig := sha256.Sum256([]byte("attacker-guess"))
+	forged := genuinePayloadEnc + "." + base64.RawURLEncoding.EncodeToString(forgedSig[:])
+	m.Revoke(forged)
+
+	if err := m.Verify(genuine, time.Now()); err != nil {
+		t.Fatalf("genuine session must survive forged logout, got %v", err)
 	}
 }
 
