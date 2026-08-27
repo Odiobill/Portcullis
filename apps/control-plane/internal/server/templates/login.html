@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in — Portcullis</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #101418; color: #e6e6e6;
+           display: flex; min-height: 100vh; align-items: center; justify-content: center; margin: 0; }
+    main { background: #1a2026; padding: 2rem 2.5rem; border-radius: 8px; width: 20rem; }
+    h1 { font-size: 1.25rem; margin-top: 0; }
+    label { display: block; margin: 0.75rem 0 0.25rem; font-size: 0.9rem; }
+    input[type=password] { width: 100%; padding: 0.5rem; border-radius: 4px;
+           border: 1px solid #3a4450; background: #101418; color: #e6e6e6; box-sizing: border-box; }
+    button { margin-top: 1rem; width: 100%; padding: 0.5rem; border: 0; border-radius: 4px;
+           background: #3b82f6; color: #fff; font-size: 1rem; cursor: pointer; }
+    .error { color: #f87171; font-size: 0.9rem; margin-top: 0.75rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Portcullis</h1>
+    <form method="post" action="/login">
+      <label for="passcode">Owner passcode</label>
+      <input type="password" id="passcode" name="passcode" autocomplete="current-password" required>
+      <button type="submit">Sign in</button>
+      {{if .Failed}}<p class="error">Incorrect passcode. Try again.</p>{{end}}
+    </form>
+  </main>
+</body>
+</html>
