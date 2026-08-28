@@ -2,11 +2,9 @@
 
 Portcullis is a secure control plane for public servers hosting multiple services. It leverages Caddy, a Go control plane, and Postgres to provide a professional registration and management interface for multi-tenant environments, optionally sharing a single database instance.
 
-![Portcullis Logo](./apps/web/public/logo.png)
-
 ## Features
 
-- **Go Control Plane**: Server-rendered, English-only owner dashboard (`apps/control-plane`) with cryptographically verifiable expiring sessions (ADR-0002). No Next.js, React, Prisma, or PWA surface.
+- **Go Control Plane**: Server-rendered, English-only owner dashboard (`apps/control-plane`) with cryptographically verifiable expiring sessions (ADR-0002).
 - **Service Management**: Register proxy (Docker containers) and static-file services via the authenticated dashboard, protected by session-bound CSRF.
 - **Multi-Domain Support**: Map multiple hostnames/domains to a single upstream service with automatic SSL.
 - **Generated Caddyfiles**: Services are written to `sites/generated/<service-id>.caddy`, validated, then Caddy is reloaded with rollback safety.
@@ -16,7 +14,7 @@ Portcullis is a secure control plane for public servers hosting multiple service
 - **Static File Serving**: Register static sites served directly by Caddy from `/srv/sites/<domain>`, without an app container.
 - **Automatic Backups**: Nightly `pg_dump -Fc` per service with daily/weekly/monthly retention tiers (7/4/3). Sidecar container, enabled via `--profile backup`; dashboard lists and downloads backups read-only.
 - **On-Demand Dumps**: Session-authenticated, CSRF-protected dashboard action streaming a rate-limited `pg_dump -Fc` of a provisioned service database. No bearer token exists.
-- **Explicit Migrations**: Committed versioned SQL migrations under `apps/control-plane/migrations/`, applied by a dependency-gated one-shot `migrate` Compose service; rerun-safe against the same fresh schema. No legacy Prisma compatibility (ADR-0001).
+- **Explicit Migrations**: Committed versioned SQL migrations under `apps/control-plane/migrations/`, applied by a dependency-gated one-shot `migrate` Compose service; rerun-safe against the same fresh schema (ADR-0001).
 - **Container Healthchecks**: Core containers monitored with Docker healthchecks (`caddy version`, `/healthz` (database-backed), `pg_isready`). The control plane starts only after migrations completed successfully.
 - **Resource Limits**: Configured `mem_limit` and `cpus` on all containers to prevent runaway processes.
 - **Log Rotation**: Docker `json-file` driver with `max-size: 10m, max-file: 3` on all containers.
@@ -152,4 +150,4 @@ The dump is rate-limited to one per service per five minutes and carries no bear
 ## Development
 
 - Go control plane: see `apps/control-plane/README.md`.
-- Historical legacy Next.js guidance: [AGENTS.md](./AGENTS.md) (historical only; the Go control plane supersedes it).
+- Agent briefing for working on this code: [AGENTS.md](./AGENTS.md).

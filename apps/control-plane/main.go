@@ -13,8 +13,8 @@
 // to the configured database and exits. It is the explicit Compose
 // migration mechanism: the one-shot migrate service runs it before the
 // control plane starts (dependency-gated), and version tracking makes
-// reruns against the same fresh schema a safe no-op. There is no legacy
-// Prisma/data compatibility path (ADR-0001).
+// reruns against the same fresh schema a safe no-op. There is no
+// legacy-data compatibility path (ADR-0001).
 package main
 
 import (

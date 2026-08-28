@@ -5,7 +5,7 @@
 // migration runs inside its own transaction — together with its version
 // record — so a partial failure can never roll back an already committed
 // earlier migration, and a failed migration leaves no half-applied schema.
-// No legacy Prisma/data compatibility path exists (ADR-0001).
+// No legacy-data compatibility path exists (ADR-0001).
 package migrate
 
 import (

@@ -75,8 +75,8 @@ services:
   control_plane:
     # Go control plane (ADR-0001): owner dashboard, service lifecycle,
     # Caddy validate/reload, log view, read-only backup browser, optional
-    # provisioning, and session-authenticated dumps. No bearer token, no
-    # Prisma, no Docker socket.
+    # provisioning, and session-authenticated dumps. No bearer token and
+    # no Docker socket.
     build:
       context: ./apps/control-plane
     image: portcullis-control-plane:latest

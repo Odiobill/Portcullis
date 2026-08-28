@@ -1,49 +1,22 @@
-# Dependencies
-node_modules/
-.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+# Environment files and secrets
+.env
+.env.local
+.env.*.local
+!.env.example
 
-# Next.js build output
-.next/
-out/
+# Docker data (bind mounts — survive docker compose down -v)
+data/
 
-# Production build
+# Build output
 build/
-
-# Testing
-coverage/
+dist/
 
 # Misc
 .DS_Store
 *.pem
-*.tsbuildinfo
-next-env.d.ts
+*.log
 
-# Debug logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# Environment files
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-!.env.example
-
-# Docker data (bind mounts — survives docker compose down -v)
-data/
-
-# Vercel
-.vercel
-
-# Prisma
-/apps/web/app/generated/prisma
-**/migration_lock.toml
+# Editor/IDE
+.vscode/
+.idea/
+*.swp

@@ -8,7 +8,7 @@ COMPOSE := docker compose
 PROFILE_BACKUP := --profile backup
 
 # ── Build ───────────────────────────────────────────────────────
-build: ## Build all images (Caddy + Next.js + Backup)
+build: ## Build all images (Caddy + control-plane + Backup)
 	$(COMPOSE) build
 	$(COMPOSE) $(PROFILE_BACKUP) build
 
@@ -31,8 +31,8 @@ logs: ## Tail all container logs
 logs-caddy: ## Tail Caddy logs
 	$(COMPOSE) logs -f caddy
 
-logs-app: ## Tail Next.js logs
-	$(COMPOSE) logs -f nextjs_app
+logs-control-plane: ## Tail control-plane logs
+	$(COMPOSE) logs -f control_plane
 
 logs-db: ## Tail Postgres logs
 	$(COMPOSE) logs -f portcullis_db
@@ -57,24 +57,10 @@ db-reset: ## Reset database (⚠️ destroys all data)
 	$(COMPOSE) up -d
 
 # ── Dump ─────────────────────────────────────────────────────────
-dump: ## On-demand dump of a service (usage: make dump SERVICE=cuid123)
-	@if [ -z "$(SERVICE)" ]; then \
-		echo "Usage: make dump SERVICE=<service-id>"; \
-		echo "  e.g.: make dump SERVICE=proj_abc123"; \
-		exit 1; \
-	fi
-	@PASSCODE=$$(grep PORTCULLIS_PASSCODE .env 2>/dev/null | cut -d= -f2); \
-	if [ -z "$$PASSCODE" ]; then \
-		echo "❌ PORTCULLIS_PASSCODE not found in .env"; \
-		exit 1; \
-	fi; \
-	DOMAIN=$$(grep PORTCULLIS_DOMAIN .env 2>/dev/null | cut -d= -f2); \
-	DATE=$$(date +%Y-%m-%d); \
-	curl -sS -H "Authorization: Bearer $$PASSCODE" \
-		"http://localhost:3000/api/services/$(SERVICE)/dump" \
-		-o "$(SERVICE)-$$DATE.dump" && \
-		echo "✅ Dump saved to $(SERVICE)-$$DATE.dump" || \
-		echo "❌ Dump failed"
+dump: ## Point to the dashboard dump action (no CLI/API dump endpoint)
+	@echo "On-demand dumps are session-authenticated dashboard actions."
+	@echo "Open the dashboard, open the provisioned service, and use the"
+	@echo "dump action; at most one dump per service per five minutes."
 
 # ── Cleanup ──────────────────────────────────────────────────────
 clean: ## Remove all containers, images, volumes, and data

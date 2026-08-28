@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -24,15 +25,25 @@ func deployBoundary(t *testing.T, rel string) string {
 }
 
 // TestComposeUsesGoControlPlaneAndCompletedMigrations pins the Slice 5
-// runtime replacement: the Compose manager service is the Go control plane
-// (no Next.js/Prisma runtime), schema setup is a dependency-gated one-shot
-// migration service, and the control plane only advertises health after the
-// migrations completed successfully.
+// runtime replacement: the Compose manager services are exactly the accepted
+// Go stack — caddy, control_plane, the one-shot migrate gate, the registry
+// database, and the optional backup sidecar — built from the control-plane
+// sources, with schema setup dependency-gated ahead of the control plane.
 func TestComposeUsesGoControlPlaneAndCompletedMigrations(t *testing.T) {
 	compose := deployBoundary(t, "docker-compose.yml")
 
-	if regexp.MustCompile(`(?m)^\s*nextjs_app:`).MatchString(compose) {
-		t.Error("docker-compose.yml must not define a nextjs_app runtime service anymore")
+	servicesBlock := regexp.MustCompile(`(?s)services:\n(.*?)\nnetworks:`).FindStringSubmatch(compose)
+	if servicesBlock == nil {
+		t.Fatal("docker-compose.yml must define a services block followed by networks")
+	}
+	var services []string
+	for _, m := range regexp.MustCompile(`(?m)^  ([a-z0-9_]+):\s*$`).FindAllStringSubmatch(servicesBlock[1], -1) {
+		services = append(services, m[1])
+	}
+	want := []string{"backup", "caddy", "control_plane", "migrate", "portcullis_db"}
+	sort.Strings(services)
+	if strings.Join(services, ",") != strings.Join(want, ",") {
+		t.Errorf("Compose services = %v, want exactly %v (the accepted Go stack)", services, want)
 	}
 	if !strings.Contains(compose, "context: ./apps/control-plane") {
 		t.Error("docker-compose.yml must build the Go control plane from apps/control-plane")
@@ -89,15 +100,17 @@ func TestComposePreservesSecurityAndHostBoundaries(t *testing.T) {
 }
 
 // TestCaddyBootstrapTargetsGoControlPlane pins that the bootstrap dashboard
-// route proxies to the Go control plane, not Next.js.
+// route proxies to the Go control plane on its documented port, and that the
+// generated and manual Caddyfile boundaries stay distinct and read-only to
+// Caddy.
 func TestCaddyBootstrapTargetsGoControlPlane(t *testing.T) {
 	caddyfile := deployBoundary(t, "Caddyfile")
 
-	if strings.Contains(caddyfile, "nextjs_app") {
-		t.Error("Caddyfile must not reference the removed Next.js runtime")
-	}
 	if !strings.Contains(caddyfile, "reverse_proxy control_plane:8080") {
 		t.Error("the bootstrap route must reverse_proxy control_plane:8080")
+	}
+	if regexp.MustCompile(`reverse_proxy [^\n]*:3000`).MatchString(caddyfile) {
+		t.Error("no bootstrap route may target a retired :3000 application port")
 	}
 	// Generated and manual boundaries stay distinct and read-only to Caddy.
 	if !strings.Contains(caddyfile, "import /etc/caddy/sites/generated/*.caddy") ||

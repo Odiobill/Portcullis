@@ -38,8 +38,8 @@ go build ./...
 ## Registry schema, Caddyfile core, and service lifecycle (Slices 2–3)
 
 - Versioned SQL migrations live in `migrations/` (`000001_create_services.up.sql` / `.down.sql`),
-  defining the fresh Postgres `services` registry (ADR-0001 fresh-database direction; no
-  legacy Prisma compatibility). They are **not** applied by these slices.
+  defining the fresh Postgres `services` registry (ADR-0001 fresh-database
+  direction; no legacy-schema compatibility). They are **not** applied by these slices.
 - `internal/registry` validates proxy/static services (unsafe inputs and Caddy-injection
   attempts fail closed), deterministically generates Caddy site blocks (`import <tls-mode>`,
   `reverse_proxy`, `root *` + `file_server`), and deploys/removes generated files atomically
@@ -130,7 +130,7 @@ The `migrate` subcommand applies the committed versioned SQL migrations from
 the embedded `migrations/` directory. Each migration runs in its own
 transaction and is recorded in `schema_migrations`; already-recorded
 versions are skipped, so reruns (Compose retries/restarts) are safe no-ops.
-This is the only migration mechanism; there is no legacy Prisma path.
+This is the only migration mechanism; no legacy-data compatibility path exists.
 
 ### Health
 

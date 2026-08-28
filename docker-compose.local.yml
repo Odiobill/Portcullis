@@ -10,16 +10,12 @@ services:
       - "443:443"
       - "443:443/udp"
 
-  nextjs_app:
-    # Expose nextjs directly for debugging if needed
+  control_plane:
+    # Expose the control plane directly for local debugging
     ports:
-      - "3000:3000"
+      - "8080:8080"
     environment:
-      - NODE_ENV=development
-    # In local development, we might not want standalone mode if we were running on host
-    # but since we run in Docker, standalone is fine for consistency.
-    # However, create-next-app by default doesn't enable standalone in dev.
-    # We'll stick to the production-like behavior but with exposed port.
+      - PORTCULLIS_ADDR=:8080
 
   portcullis_db:
     # Expose DB for local inspection tools (optional but helpful)

@@ -27,11 +27,11 @@ cd /srv/portcullis
 cp sites/manual/wildcard-spike.caddy.example sites/manual/wildcard-spike.caddy
 ```
 
-Validate and reload through the Next.js container, which has the same plugin-enabled Caddy binary used for runtime validation:
+Validate and reload through the control-plane container, which carries the same Caddy binary and the read-only Caddyfile mount used for runtime validation:
 
 ```bash
-docker exec portcullis_nextjs_app caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-docker exec portcullis_nextjs_app caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile --address http://caddy:2019
+docker exec portcullis_control_plane caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+docker exec portcullis_control_plane caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile --address http://caddy:2019
 ```
 
 Check Caddy logs for DNS-01 activity:
@@ -74,8 +74,8 @@ After the spike:
 
 ```bash
 rm sites/manual/wildcard-spike.caddy
-docker exec portcullis_nextjs_app caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-docker exec portcullis_nextjs_app caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile --address http://caddy:2019
+docker exec portcullis_control_plane caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+docker exec portcullis_control_plane caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile --address http://caddy:2019
 ```
 
 Keep the `.example` template in Git for repeatable staging verification.
@@ -84,9 +84,11 @@ Keep the `.example` template in Git for repeatable staging verification.
 
 Only after the Heimdall spike is proven should Portcullis add dashboard-level wildcard certificate support. Candidate schema fields are intentionally deferred:
 
-```prisma
-usesWildcardCert Boolean @default(false) @map("uses_wildcard_cert")
-wildcardBaseDomain String? @map("wildcard_base_domain")
+Candidate `services` columns (plain SQL, deferred until the spike is proven):
+
+```sql
+-- uses_wildcard_cert boolean NOT NULL DEFAULT false
+-- wildcard_base_domain text
 ```
 
 Do not add these fields until the DNS-01 behavior is confirmed on the target deployment.

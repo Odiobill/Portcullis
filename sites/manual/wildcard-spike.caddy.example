@@ -3,7 +3,7 @@
 # This file is intentionally named .example so Caddy does not import it.
 # To run the spike on Heimdall, copy it to:
 #   sites/manual/wildcard-spike.caddy
-# Then validate and reload Caddy through the Next.js container.
+# Then validate and reload Caddy through the control-plane container.
 #
 # Requirements:
 # - CADDY_DNS_PROVIDER=namecheap
