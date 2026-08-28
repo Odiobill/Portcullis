@@ -404,6 +404,24 @@ func (s *Server) handleCreateService(w http.ResponseWriter, r *http.Request) {
 		s.renderServiceForm(w, s.formFromAttempt(r, serviceFormData{Action: "/services", Type: svcTypeForRetry(r)}, fieldErrs), http.StatusBadRequest)
 		return
 	}
+	if provisionRequested(r) {
+		if s.lifecycle.Provisioner == nil {
+			http.Error(w, "Database provisioning is not available in this build.", http.StatusServiceUnavailable)
+			return
+		}
+		created, cred, err := s.lifecycle.CreateProvisioned(r.Context(), svc)
+		if err != nil {
+			s.renderProvisioningCreateError(w, r, err)
+			return
+		}
+		s.logger.Info("service created with provisioned database", "id", created.ID, "db", created.DBName)
+		s.renderCredentials(w, credentialsData{
+			DBName:   created.DBName,
+			DBUser:   cred.DBUser,
+			Password: cred.Password,
+		})
+		return
+	}
 	created, err := s.lifecycle.Create(r.Context(), svc)
 	if err != nil {
 		var comp *registry.CompensationError
@@ -481,6 +499,10 @@ func (s *Server) handleDeleteService(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "The deletion could not be completed and its undo also failed. Manual inspection is required.", http.StatusInternalServerError)
 			return
 		}
+		if errors.Is(err, registry.ErrProvisionedService) {
+			http.Error(w, "This service has a provisioned database. Automatic database decommissioning is not available yet; remove the database and role manually before deleting the service.", http.StatusConflict)
+			return
+		}
 		if errors.Is(err, registry.ErrNotFound) {
 			http.Error(w, "service not found", http.StatusNotFound)
 			return
@@ -491,6 +513,49 @@ func (s *Server) handleDeleteService(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.Info("service deleted", "id", id)
 	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+}
+
+// provisionRequested reports whether the owner opted in to project
+// database provisioning on the create form.
+func provisionRequested(r *http.Request) bool {
+	return r.PostFormValue("provision_db") == "on"
+}
+
+// renderProvisioningCreateError maps provisioning creation failures to
+// distinct English outcomes: validation feedback, failed-compensation
+// notices, or the post-rollback provisioning failure. It never claims
+// success.
+func (s *Server) renderProvisioningCreateError(w http.ResponseWriter, r *http.Request, err error) {
+	var comp *registry.CompensationError
+	if errors.As(err, &comp) {
+		s.logger.Error("provisioning compensation failed", "err", err)
+		http.Error(w, "The change could not be completed and its undo also failed. Manual inspection is required.", http.StatusInternalServerError)
+		return
+	}
+	if isValidationError(err) {
+		s.renderServiceForm(w, s.formFromAttempt(r, serviceFormData{Action: "/services", Type: svcTypeForRetry(r)}, []string{englishValidationMessage(err)}), http.StatusBadRequest)
+		return
+	}
+	s.logger.Error("provisioned service creation failed", "err", err)
+	http.Error(w, "Database provisioning failed. The service has been removed and no partial state was kept; please try again.", http.StatusInternalServerError)
+}
+
+// credentialsData renders the one-time database credential page.
+type credentialsData struct {
+	DBName   string
+	DBUser   string
+	Password string
+}
+
+// renderCredentials emits the one-time credential page with no-store cache
+// protections. There is no route that can re-display these values later.
+func (s *Server) renderCredentials(w http.ResponseWriter, data credentialsData) {
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.templates.ExecuteTemplate(w, "credentials.html", data); err != nil {
+		s.logger.Error("render credentials page", "err", err)
+	}
 }
 
 // formFromAttempt re-renders the service form with the submitted values and

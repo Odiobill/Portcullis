@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	"portcullis/control-plane/internal/provision"
 )
 
 // CompensationError reports an operation failure whose compensation also
@@ -31,6 +33,19 @@ var ErrCompensationFailed = errors.New("registry: compensation failed")
 
 func (e *CompensationError) Is(target error) bool { return target == ErrCompensationFailed }
 
+// ErrProvisionedService is returned when an operation would affect a
+// service that carries provisioned database identifiers, but the operation
+// cannot do so safely (deletion: automatic database decommissioning is not
+// implemented).
+var ErrProvisionedService = errors.New("registry: service has a provisioned database; automatic database decommissioning is not available")
+
+// Provisioner provisions one isolated project database and role for an
+// opted-in service. Implemented by provision.PostgresAdmin; injected so
+// tests never connect to PostgreSQL.
+type Provisioner interface {
+	Provision(ctx context.Context, spec provision.Spec) error
+}
+
 // Lifecycle orchestrates the authenticated service lifecycle across the
 // repository and the rollback-safe generated-Caddyfile Store. Compensation
 // ordering:
@@ -50,6 +65,9 @@ type Lifecycle struct {
 	repo  ServiceRepository
 	store *Store
 	newID func() string
+	// Provisioner, when set, enables opt-in project database provisioning
+	// during creation.
+	Provisioner Provisioner
 }
 
 // NewLifecycle returns a Lifecycle. newID must generate opaque, unique
@@ -132,7 +150,9 @@ func (l *Lifecycle) Edit(ctx context.Context, s Service) (Service, error) {
 
 // Delete removes the generated Caddyfile first, then deletes the record. If
 // the DB deletion fails, the prior generated Caddyfile is restored through
-// the Slice-2 deploy path.
+// the Slice-2 deploy path. Services with provisioned database identifiers
+// fail closed before any effect: automatic database decommissioning is not
+// implemented and deleting the record would orphan the database.
 func (l *Lifecycle) Delete(ctx context.Context, id string) (Service, error) {
 	if err := validateID(id); err != nil {
 		return Service{}, err
@@ -141,16 +161,28 @@ func (l *Lifecycle) Delete(ctx context.Context, id string) (Service, error) {
 	if err != nil {
 		return Service{}, err
 	}
+	if prior.DBName != "" || prior.DBUser != "" {
+		return prior, fmt.Errorf("%w", ErrProvisionedService)
+	}
+	return prior, l.deleteUnchecked(ctx, prior, id)
+}
+
+// deleteUnchecked performs the Caddyfile-removal-then-record-delete with
+// restore. It is the shared implementation for owner-initiated deletion of
+// unprovisioned services and for internal compensation of a partially
+// provisioned creation (where removing the just-created database-less
+// record is the required cleanup).
+func (l *Lifecycle) deleteUnchecked(ctx context.Context, prior Service, id string) error {
 	if err := l.store.Remove(id); err != nil {
-		return Service{}, err
+		return err
 	}
 	if err := l.repo.Delete(ctx, id); err != nil {
 		if rerr := l.store.Deploy(prior); rerr != nil {
-			return prior, &CompensationError{Operation: "delete", Primary: err, Compensate: rerr}
+			return &CompensationError{Operation: "delete", Primary: err, Compensate: rerr}
 		}
-		return prior, err
+		return err
 	}
-	return prior, nil
+	return nil
 }
 
 // List returns all registered services.
@@ -164,4 +196,58 @@ func (l *Lifecycle) Get(ctx context.Context, id string) (Service, error) {
 		return Service{}, err
 	}
 	return l.repo.Get(ctx, id)
+}
+
+// CreateProvisioned is the opt-in variant of Create: after the service is
+// persisted and deployed, one isolated project database and role are
+// provisioned with server-derived identifiers and a cryptographically
+// random password. If provisioning fails, the accepted lifecycle
+// compensation path removes the service again (generated Caddyfile first,
+// then the record); a failed compensation surfaces as *CompensationError
+// and is never success. The generated password is returned exactly once in
+// the Credential and is never persisted or logged.
+func (l *Lifecycle) CreateProvisioned(ctx context.Context, s Service) (Service, *provision.Credential, error) {
+	if l.Provisioner == nil {
+		return Service{}, nil, errors.New("registry: database provisioning is not available")
+	}
+	s.ID = l.newID()
+	prepared, err := prepare(s)
+	if err != nil {
+		return Service{}, nil, err
+	}
+	dbName, dbUser, err := provision.Identifiers(prepared.ID)
+	if err != nil {
+		return Service{}, nil, err
+	}
+	prepared.DBName, prepared.DBUser = dbName, dbUser
+
+	if err := l.repo.Create(ctx, prepared); err != nil {
+		return Service{}, nil, err
+	}
+	if err := l.store.Deploy(prepared); err != nil {
+		if cerr := l.repo.Delete(ctx, prepared.ID); cerr != nil {
+			return Service{}, nil, &CompensationError{Operation: "create", Primary: err, Compensate: cerr}
+		}
+		return Service{}, nil, err
+	}
+
+	password, err := provision.GeneratePassword()
+	if err != nil {
+		return Service{}, nil, l.compensateProvisionedCreate(ctx, prepared, err)
+	}
+	spec := provision.Spec{DBName: dbName, UserName: dbUser, Password: password}
+	if err := l.Provisioner.Provision(ctx, spec); err != nil {
+		return Service{}, nil, l.compensateProvisionedCreate(ctx, prepared, err)
+	}
+	return prepared, &provision.Credential{DBName: dbName, DBUser: dbUser, Password: password}, nil
+}
+
+// compensateProvisionedCreate removes a partially provisioned creation via
+// the accepted lifecycle delete path, surfacing failed compensation
+// distinctly.
+func (l *Lifecycle) compensateProvisionedCreate(ctx context.Context, prepared Service, primary error) error {
+	if err := l.deleteUnchecked(ctx, prepared, prepared.ID); err != nil {
+		return &CompensationError{Operation: "create-provision", Primary: primary, Compensate: err}
+	}
+	return primary
 }

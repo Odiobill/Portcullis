@@ -66,6 +66,13 @@
              placeholder="/srv/sites/static.example.com">
       <p class="hint">Static sites only. Must stay inside /srv/sites/.</p>
 
+      {{if not .IsEdit}}
+      <label>
+        <input type="checkbox" name="provision_db" value="on" style="width:auto">
+        Provision an isolated project database (password shown once after creation)
+      </label>
+      {{end}}
+
       <button type="submit">{{if .IsEdit}}Save changes{{else}}Create service{{end}}</button>
     </form>
   </main>

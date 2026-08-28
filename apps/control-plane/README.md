@@ -72,3 +72,18 @@ are never listed or downloadable; all failures return bounded English
 errors without host paths. Downloads stream with
 `application/octet-stream`, safe attachment disposition, and correct
 length. No backup creation, deletion, retention, or upload exists.
+
+## Opt-in project database provisioning (Slice 4c1)
+
+`internal/provision` derives server-owned database/role names from the
+opaque service ID, generates a cryptographically random alphanumeric
+password, and executes the PostgreSQL administration statements
+(`CREATE ROLE`/`CREATE DATABASE`/`GRANT`) through an injected executor.
+Identifiers are strictly validated and quoted; the generated password
+never appears in errors or logs and is shown exactly once on an
+authenticated no-store credential page. `registry.Lifecycle.
+CreateProvisioned` orchestrates registry/Caddy/provisioner: provisioning
+failure removes the service again via the accepted compensation path,
+and failed compensation surfaces as `*CompensationError`. Deleting a
+service that carries provisioned DB identifiers fails closed (409):
+automatic database decommissioning is intentionally not implemented.
