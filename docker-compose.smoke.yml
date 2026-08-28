@@ -1,0 +1,137 @@
+# Slice 5 isolated disposable smoke stack.
+#
+# This file is deliberately standalone and self-contained: it must never be
+# able to touch the live Portcullis deployment. Unlike docker-compose.yml it
+# uses no external networks, no host port bindings, and no bind mounts into
+# ./data or ./sites — every network and volume is project-scoped, so
+# `docker compose -p <unique-name> down -v` can only ever destroy resources
+# this smoke run created.
+#
+# Required environment (throwaway values, never the live owner secrets):
+#   PORTCULLIS_PASSCODE        owner passcode for the smoke control plane
+#   PORTCULLIS_SESSION_SECRET  at least 32 characters
+#   DB_USER / DB_PASSWORD      fresh Postgres credentials for the smoke DB
+#
+# NOTE: Compose interpolates ${...} defaults from a repository .env file if
+# present. Pass PORTCULLIS_DOMAIN and CADDY_TLS_MODE explicitly so the smoke
+# always uses its own vhost/TLS mode instead of live .env values:
+#
+# Run (use a unique project name so parallel/old runs cannot collide):
+#   PORTCULLIS_PASSCODE=smoke-passcode \
+#   PORTCULLIS_SESSION_SECRET=smoke-session-secret-0123456789abcdef \
+#   DB_USER=smoke_owner DB_PASSWORD=smoke-db-password \
+#   CADDY_TLS_MODE=internal PORTCULLIS_DOMAIN=staging.localhost \
+#   docker compose -f docker-compose.smoke.yml -p portcullis-smoke-<unique> up -d --build
+#
+# End-to-end check (route through Caddy with the smoke vhost):
+#   docker run --rm --network portcullis-smoke-<unique>_smoke_net \
+#     curlimages/curl:latest sh -c \
+#     'IP=$(getent hosts caddy | awk "{print $1}"); \
+#      curl -sk --resolve staging.localhost:443:$IP -o /dev/null -w "%{http_code}\n" \
+#      https://staging.localhost/login'   # expect 200
+#
+# Teardown (targets ONLY the unique project's containers/networks/volumes):
+#   PORTCULLIS_PASSCODE=... PORTCULLIS_SESSION_SECRET=... DB_USER=... \
+#   DB_PASSWORD=... docker compose -f docker-compose.smoke.yml \
+#   -p portcullis-smoke-<unique> down -v
+
+services:
+  portcullis_db:
+    image: postgres:18-alpine
+    restart: "no"
+    environment:
+      - POSTGRES_DB=${DB_NAME:-portcullis}
+      - POSTGRES_USER=${DB_USER:?set DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD}
+    volumes:
+      - smoke_pg:/var/lib/postgresql
+    networks:
+      - smoke_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  migrate:
+    build:
+      context: ./apps/control-plane
+    image: portcullis-control-plane-smoke:latest
+    restart: "no"
+    environment:
+      - PORTCULLIS_DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@portcullis_db:5432/${DB_NAME:-portcullis}
+    command: ["migrate"]  # ENTRYPOINT is control-plane; runs `control-plane migrate`
+    depends_on:
+      portcullis_db:
+        condition: service_healthy
+    networks:
+      - smoke_net
+
+  control_plane:
+    build:
+      context: ./apps/control-plane
+    image: portcullis-control-plane-smoke:latest
+    restart: "no"
+    environment:
+      - PORTCULLIS_PASSCODE=${PORTCULLIS_PASSCODE:?set PORTCULLIS_PASSCODE}
+      - PORTCULLIS_SESSION_SECRET=${PORTCULLIS_SESSION_SECRET:?set PORTCULLIS_SESSION_SECRET}
+      - PORTCULLIS_DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@portcullis_db:5432/${DB_NAME:-portcullis}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - smoke_generated:/etc/caddy/sites/generated
+      - smoke_manual:/etc/caddy/sites/manual:ro
+      - smoke_logs:/var/log/caddy
+      - smoke_backups:/backups:ro
+    depends_on:
+      portcullis_db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - smoke_net
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  caddy:
+    # Stock Caddy is sufficient for the smoke: no DNS provider plugin.
+    image: caddy:alpine
+    restart: "no"
+    environment:
+      - PORTCULLIS_DOMAIN=${PORTCULLIS_DOMAIN:-staging.localhost}
+      # The smoke has no public ports, so ACME cannot complete: internal TLS
+      # (pass CADDY_TLS_MODE=internal explicitly, see header) keeps the
+      # HTTPS path verifiable.
+      - CADDY_TLS_MODE=${CADDY_TLS_MODE:-internal}
+    # Deliberately NO host port bindings: the smoke is only reachable inside
+    # its own project network.
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - smoke_generated:/etc/caddy/sites/generated:ro
+      - smoke_manual:/etc/caddy/sites/manual:ro
+      - smoke_logs:/var/log/caddy
+      - smoke_caddy_data:/data
+      - smoke_caddy_config:/config
+    command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    depends_on:
+      control_plane:
+        condition: service_healthy
+    networks:
+      - smoke_net
+
+networks:
+  smoke_net:
+    driver: bridge
+
+volumes:
+  smoke_pg:
+  smoke_generated:
+  smoke_manual:
+  smoke_logs:
+  smoke_backups:
+  smoke_caddy_data:
+  smoke_caddy_config:

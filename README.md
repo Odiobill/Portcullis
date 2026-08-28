@@ -1,25 +1,23 @@
 # Portcullis - Secure Public Frontend Manager
 
-Portcullis is a secure control plane for public servers hosting multiple services. It leverages Caddy, Next.js, and Postgres to provide a professional registration and management interface for multi-tenant environments, optionally sharing a single database instance.
+Portcullis is a secure control plane for public servers hosting multiple services. It leverages Caddy, a Go control plane, and Postgres to provide a professional registration and management interface for multi-tenant environments, optionally sharing a single database instance.
 
 ![Portcullis Logo](./apps/web/public/logo.png)
 
 ## Features
 
-- **Service Management**: Register and decommission public services via a secure, premium dashboard. Supports both reverse proxy (Docker containers) and **static file serving** (HTML/CSS/JS sites served directly by Caddy).
+- **Go Control Plane**: Server-rendered, English-only owner dashboard (`apps/control-plane`) with cryptographically verifiable expiring sessions (ADR-0002). No Next.js, React, Prisma, or PWA surface.
+- **Service Management**: Register proxy (Docker containers) and static-file services via the authenticated dashboard, protected by session-bound CSRF.
 - **Multi-Domain Support**: Map multiple hostnames/domains to a single upstream service with automatic SSL.
 - **Generated Caddyfiles**: Services are written to `sites/generated/<service-id>.caddy`, validated, then Caddy is reloaded with rollback safety.
-- **Manual Operator Config**: Operator-owned Caddy blocks live in `sites/manual/*.caddy` and are never modified by Portcullis.
-- **Automated Provisioning**: Creates a dedicated Postgres database and user for every registered project (supports both auto-generated and custom credentials).
+- **Manual Operator Config**: Operator-owned Caddy blocks live in `sites/manual/*.caddy` and are never modified by Portcullis (read-only to the control plane).
+- **Optional Provisioning**: Opt-in per-service creation of an isolated Postgres database/user with a cryptographically random password shown exactly once — never persisted or logged. Deletion of a provisioned service fails closed (no automatic decommission).
 - **DNS-01 TLS**: Modular DNS challenge support for staging/internal networks without public ports. Per-provider Caddyfile snippets for NameCheap, Cloudflare, and Route53.
 - **Static File Serving**: Register static sites served directly by Caddy from `/srv/sites/<domain>`, without an app container.
 - **Automatic Backups**: Nightly `pg_dump -Fc` per service with daily/weekly/monthly retention tiers (7/4/3). Sidecar container, enabled via `--profile backup`; dashboard lists and downloads backups read-only.
-- **On-Demand Dump API**: `POST /api/services/[id]/dump`, passcode-protected, rate-limited, streaming dump for service migration.
-- **Container Healthchecks**: All three core containers monitored with Docker healthchecks (`caddy version`, `/api/health`, `pg_isready`). `nextjs_app` waits for healthy DB before starting.
-- **Secured Access**: Passcode-protected control plane designed for public-facing deployments.
-- **Modern UI**: Next.js 16.2 App Router with Rspack, Tailwind CSS, premium dark branding, truncation-safe service cards, and refreshable Caddy log viewing.
-- **PWA Ready**: Installable on mobile for total control on the go.
-- **Secure Architecture**: Multi-network Docker setup isolating projects from the control plane and from each other.
+- **On-Demand Dumps**: Session-authenticated, CSRF-protected dashboard action streaming a rate-limited `pg_dump -Fc` of a provisioned service database. No bearer token exists.
+- **Explicit Migrations**: Committed versioned SQL migrations under `apps/control-plane/migrations/`, applied by a dependency-gated one-shot `migrate` Compose service; rerun-safe against the same fresh schema. No legacy Prisma compatibility (ADR-0001).
+- **Container Healthchecks**: Core containers monitored with Docker healthchecks (`caddy version`, `/healthz` (database-backed), `pg_isready`). The control plane starts only after migrations completed successfully.
 - **Resource Limits**: Configured `mem_limit` and `cpus` on all containers to prevent runaway processes.
 - **Log Rotation**: Docker `json-file` driver with `max-size: 10m, max-file: 3` on all containers.
 
@@ -28,9 +26,8 @@ Portcullis is a secure control plane for public servers hosting multiple service
 | Component | Technology |
 |---|---|
 | Gateway | Caddy (Alpine, custom build for DNS-01) |
-| Frontend/Backend | Next.js 16.2 (TypeScript, Rspack) |
+| Control Plane | Go (net/http, server-rendered HTML, pgx) |
 | Database | PostgreSQL 18 |
-| ORM | Prisma 7 |
 | Infrastructure | Docker + Docker Compose |
 
 ## Quick Start
@@ -44,28 +41,49 @@ docker network create db_network
 ### 2. Environment Setup
 ```bash
 cp .env.example .env
-# Edit .env with your secrets
+# Edit .env: set DB credentials, PORTCULLIS_PASSCODE, and a strong
+# PORTCULLIS_SESSION_SECRET (at least 32 characters).
 ```
 
-### 3. Deploy Stack
+### 3. Build and Start
 ```bash
-make build    # build all images
-make up       # start stack (without backup sidecar)
-# or: make up-all  # start with backup sidecar
+docker compose build   # control-plane + caddy images
+docker compose up -d   # migrate runs once, then the control plane starts
 ```
+
+The `migrate` service applies the committed SQL migrations to the fresh
+database and exits; `control_plane` depends on it completing successfully
+before it starts. The registry database is disposable by design (ADR-0001):
+re-running against the same fresh schema is safe, but no legacy data is
+migrated.
 
 ### 4. Verify Startup
 
-Database migrations run automatically from `apps/web/entrypoint.sh` when `portcullis_nextjs_app` starts. Do not run Prisma migrations manually after a normal deploy.
-
 ```bash
 docker compose ps
-docker logs --tail 100 portcullis_nextjs_app
-
-docker exec portcullis_nextjs_app node -e "require('http').get('http://localhost:3000/api/health', r => { console.log(r.statusCode); process.exit(r.statusCode === 200 ? 0 : 1); }).on('error', e => { console.error(e); process.exit(1); })"
+docker logs --tail 100 portcullis_control_plane
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/healthz  # on the host, if published
 ```
 
-Expected health probe output: `200`.
+Expected: `control_plane` healthy (`/healthz` returns 200 only when the
+registry database answers), `migrate` exited 0.
+
+## Isolated disposable smoke
+
+`docker-compose.smoke.yml` runs the full stack (fresh database, migrations,
+Go control plane, Caddy) in an isolated project — no host ports, no external
+networks, no bind mounts into `./data` or `./sites`. It can never touch a
+live deployment:
+
+```bash
+PORTCULLIS_PASSCODE=smoke-passcode \
+PORTCULLIS_SESSION_SECRET=smoke-session-secret-0123456789abcdef \
+DB_USER=smoke_owner DB_PASSWORD=smoke-db-password \
+docker compose -f docker-compose.smoke.yml -p portcullis-smoke-<unique> up -d --build
+
+# Teardown — destroys ONLY the unique project's resources:
+docker compose -f docker-compose.smoke.yml -p portcullis-smoke-<unique> down -v
+```
 
 ## Staging rsync deployment
 
@@ -77,54 +95,14 @@ rsync -az --delete --exclude-from=.rsyncignore \
   dietpi@Heimdall:/srv/portcullis/
 ```
 
-The ignore file protects local dependencies, build outputs, secrets, Postgres data, and operator/runtime Caddy state:
+The ignore file protects local dependencies, build outputs, secrets, Postgres data, and operator/runtime Caddy state.
 
-```text
-.env
-data/
-sites/generated/
-sites/manual/
-node_modules/
-.next/
-```
+Then on the server: `cd /srv/portcullis && docker compose up --build -d`.
 
-Then on the server:
-
-```bash
-cd /srv/portcullis
-docker compose up --build -d
-```
-
-If staging data can be discarded and the Postgres credentials or schema need a full reset, remove the bind-mounted database directory:
-
-```bash
-cd /srv/portcullis
-docker compose down --remove-orphans
-sudo rm -rf data/pg_data
-docker compose up --build -d
-```
-
-This is necessary because Postgres uses a bind mount at `./data/pg_data`; `docker compose down -v` does not remove that directory.
-
-## Makefile Reference
-
-```bash
-make help          # show all targets
-make build         # build all images (Caddy + Next.js + Backup)
-make up            # start stack (no backup)
-make up-all        # start with backup sidecar (--profile backup)
-make down          # stop all containers
-make restart       # down + up
-make logs          # tail all container logs
-make logs-caddy    # tail Caddy logs
-make logs-app      # tail Next.js logs
-make logs-db       # tail Postgres logs
-make logs-backup   # tail backup logs
-make ps            # show container status + health
-make db-reset      # reset database (⚠️ destroys all data)
-make dump SERVICE=<id>  # on-demand pg_dump via API
-make clean         # remove everything (⚠️ destroys all data)
-```
+**Cutover is a destructive, separately authorized operation** — see
+`Projects/Portcullis/runbooks/` in the Piren vault for the reviewed
+cutover/rollback runbook. Do not reset or migrate the existing database
+without explicit steward approval.
 
 ## DNS-01 Configuration
 
@@ -148,7 +126,7 @@ NAMECHEAP_API_KEY=your_api_key
 NAMECHEAP_API_USER=your_username
 ```
 
-Then rebuild Caddy with the DNS plugin: `make build`
+Then rebuild Caddy with the DNS plugin: `docker compose build caddy`
 
 ## Wildcard certificate spike
 
@@ -163,18 +141,15 @@ The template is not imported by default. Copy it to `sites/manual/wildcard-spike
 
 ## Service Migration (graduation)
 
-When a service outgrows Portcullis and moves to its own VPS:
+When a provisioned service outgrows Portcullis and moves to its own VPS, use the **On-Demand Dump** dashboard action (owner session + CSRF) to stream a `pg_dump -Fc` archive, then pipe it into `pg_restore` on the new host:
 
 ```bash
-# On the new VPS, pipe the dump directly into pg_restore:
-curl -sS -H "Authorization: Bearer $PORTCULLIS_PASSCODE \
-  "https://portcullis.domain/api/services/SERVICE_ID/dump" \
-  | pg_restore -h localhost -U postgres -d new_db
-
-# Or locally:
-make dump SERVICE=proj_abc123
+pg_restore -h localhost -U postgres -d new_db service.dump
 ```
+
+The dump is rate-limited to one per service per five minutes and carries no bearer token.
 
 ## Development
 
-See [AGENTS.md](./AGENTS.md) for detailed architecture documentation, coding conventions, and migration workflows.
+- Go control plane: see `apps/control-plane/README.md`.
+- Historical legacy Next.js guidance: [AGENTS.md](./AGENTS.md) (historical only; the Go control plane supersedes it).

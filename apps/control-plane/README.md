@@ -102,3 +102,57 @@ attempts never consume quota). Successful starts stream
 process is terminated on client disconnect, and post-header process
 failures are logged without secrets and never claimed as completed
 dumps. No bearer-token authentication exists.
+
+## Compose runtime wiring (Slice 5)
+
+`main.go` is the production runtime for the Compose `control_plane` service.
+Startup wiring is explicit and fails closed:
+
+1. `config.LoadRuntime()` — passcode, session secret, and the registry
+   database URL are mandatory; every path defaults to the accepted
+   deployment boundary (generated Caddyfile directory, Caddyfile, private
+   admin endpoint `caddy:2019`, Caddy log, backup directory). Relative
+   directories are rejected.
+2. `pgxpool` connects to the fresh registry database and must answer a ping,
+   or the process exits.
+3. Dependencies are constructed exactly as accepted in Slices 2–4: the
+   Caddy validate/reload operator, the read-only log reader, the
+   generated-only Caddyfile store (`sites/manual` is never part of its
+   configuration), the pgx repository and lifecycle (with the optional
+   provisioner attached), the read-only backup browser, and the
+   fixed-argument `pg_dump` boundary. The dump host/user derive from the
+   registry DSN; credential material flows only through the child
+   environment hook, never through arguments.
+
+### Migrations: `control-plane migrate`
+
+The `migrate` subcommand applies the committed versioned SQL migrations from
+the embedded `migrations/` directory. Each migration runs in its own
+transaction and is recorded in `schema_migrations`; already-recorded
+versions are skipped, so reruns (Compose retries/restarts) are safe no-ops.
+This is the only migration mechanism; there is no legacy Prisma path.
+
+### Health
+
+`GET /healthz` is an unauthenticated readiness probe returning `200 ok` only
+when the registry database answers a ping (2-second timeout), so the
+container never advertises a ready registry before the schema is usable.
+
+### Runtime configuration reference
+
+| Variable | Meaning | Default |
+| --- | --- | --- |
+| `PORTCULLIS_PASSCODE` | Owner passcode (required). | — |
+| `PORTCULLIS_SESSION_SECRET` | Session signing secret, ≥32 chars (required). | — |
+| `PORTCULLIS_DATABASE_URL` | PostgreSQL URL of the fresh registry database (required). | — |
+| `PORTCULLIS_GENERATED_DIR` | Writable generated-Caddyfile directory (absolute). | `/etc/caddy/sites/generated` |
+| `PORTCULLIS_CADDY_CONFIG` | Root Caddyfile for validate/reload. | `/etc/caddy/Caddyfile` |
+| `PORTCULLIS_CADDY_ADMIN` | Private Caddy admin endpoint. | `caddy:2019` |
+| `PORTCULLIS_CADDY_LOG` | Caddy log file for the bounded reader. | `/var/log/caddy/portcullis.log` |
+| `PORTCULLIS_BACKUP_DIR` | Read-only backup directory. | `/backups` |
+| `PORTCULLIS_ADDR` | HTTP listen address. | `:8080` |
+
+Secrets are supplied via the environment only; they never appear in logs,
+arguments, or source fixtures. The Docker image (`Dockerfile`) is a static
+CGO-disabled Go build on Alpine with the `caddy` binary (validate/reload)
+and a version-matched `postgresql18-client` (`pg_dump`) installed.

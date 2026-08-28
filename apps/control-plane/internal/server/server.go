@@ -6,6 +6,7 @@
 package server
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
@@ -53,8 +54,18 @@ type Config struct {
 	// Dumper serves session-authenticated migration dumps. When nil the
 	// dump action is unavailable.
 	Dumper *dump.Dumper
+	// Pinger probes registry-database readiness for GET /healthz. When nil
+	// the control plane reports not ready, so a container never advertises
+	// a healthy registry without a reachable database.
+	Pinger Pinger
 	// Now overrides the wall clock; nil means time.Now. Injected for tests.
 	Now func() time.Time
+}
+
+// Pinger is the minimal database-readiness boundary satisfied by
+// *pgxpool.Pool; injected so tests never connect to PostgreSQL.
+type Pinger interface {
+	Ping(ctx context.Context) error
 }
 
 // Server holds the wired control-plane dependencies.
@@ -66,6 +77,7 @@ type Server struct {
 	logs         *caddyops.LogReader
 	backups      *backups.Browser
 	dumper       *dump.Dumper
+	pinger       Pinger
 	logger       *slog.Logger
 	templates    *template.Template
 	now          func() time.Time
@@ -90,6 +102,7 @@ func New(cfg Config) *Server {
 		logs:         cfg.LogReader,
 		backups:      cfg.Backups,
 		dumper:       cfg.Dumper,
+		pinger:       cfg.Pinger,
 		logger:       logger,
 		templates:    template.Must(template.ParseFS(templatesFS, "templates/*.html")),
 		now:          now,
@@ -113,8 +126,25 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /backups/{name}", s.requireSession(s.handleBackupDownload))
 	mux.HandleFunc("POST /caddy/reload", s.requireSession(s.requireCSRF(s.handleCaddyReload)))
 	mux.HandleFunc("POST /services/{id}/dump", s.requireSession(s.requireCSRF(s.handleServiceDump)))
+	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("POST /logout", s.handleLogout)
 	return mux
+}
+
+// handleHealthz reports registry readiness for the container healthcheck.
+// It is intentionally unauthenticated and leaks nothing beyond a fixed
+// readiness token: 200 only when the database answers a ping, so the
+// control plane never advertises a ready registry before the database (and
+// its applied schema) is actually usable.
+func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if s.pinger == nil || s.pinger.Ping(ctx) != nil {
+		http.Error(w, "not ready", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = io.WriteString(w, "ok\n")
 }
 
 // constantTimePasscode compares the submitted passcode to the expected one

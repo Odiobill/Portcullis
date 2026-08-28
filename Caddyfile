@@ -71,7 +71,7 @@
     origins localhost:2019 caddy:2019
   }
 
-  # File-based logs are mounted read-only into Next.js for the dashboard viewer.
+  # File-based logs are consumed read-only by the Go control-plane viewer.
   log {
     output file /var/log/caddy/portcullis.log
     format json
@@ -85,7 +85,7 @@
   # CADDY_TLS_MODE selects: internal | acme | namecheap_tls | cloudflare_tls | route53_tls
   import {$CADDY_TLS_MODE:acme}
 
-  reverse_proxy nextjs_app:3000
+  reverse_proxy control_plane:8080
 }
 
 # ── Import generated and manual site blocks ──────────────────

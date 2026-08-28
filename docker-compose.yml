@@ -45,43 +45,76 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  nextjs_app:
+  migrate:
+    # One-shot schema setup for the fresh registry database. Dependency-
+    # gated: control_plane starts only after migrations completed
+    # successfully, and version tracking makes reruns safe no-ops.
     build:
-      context: ./apps/web
-      dockerfile: Dockerfile
-      args:
-        CADDY_DNS_PROVIDER: ${CADDY_DNS_PROVIDER:-}
-    container_name: portcullis_nextjs_app
-    restart: unless-stopped
-    mem_limit: 512m
-    cpus: 1.0
+      context: ./apps/control-plane
+    image: portcullis-control-plane:latest
+    container_name: portcullis_migrate
+    restart: "no"
+    mem_limit: 128m
+    cpus: 0.5
     environment:
-      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@portcullis_db:5432/${DB_NAME}?schema=public
-      - CADDY_ADMIN_API=http://caddy:2019
-      - CADDY_ADMIN_ADDRESS=caddy:2019
-      - CADDY_LOG_PATH=/var/log/caddy/portcullis.log
-      - BACKUP_DIR=/backups
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./sites:/etc/caddy/sites
-      # Caddy CLI validation opens configured log writers, so this must be writable.
-      - ./data/caddy_logs:/var/log/caddy
-      - backup_data:/backups:ro
+      # Only the database URL: the migrate subcommand never needs owner
+      # secrets. Credentials flow via environment only.
+      - PORTCULLIS_DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@portcullis_db:5432/${DB_NAME}
+    command: ["migrate"]  # ENTRYPOINT is control-plane; runs `control-plane migrate`
     depends_on:
       portcullis_db:
         condition: service_healthy
     networks:
       - portcullis_internal
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  control_plane:
+    # Go control plane (ADR-0001): owner dashboard, service lifecycle,
+    # Caddy validate/reload, log view, read-only backup browser, optional
+    # provisioning, and session-authenticated dumps. No bearer token, no
+    # Prisma, no Docker socket.
+    build:
+      context: ./apps/control-plane
+    image: portcullis-control-plane:latest
+    container_name: portcullis_control_plane
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 1.0
+    environment:
+      - PORTCULLIS_PASSCODE=${PORTCULLIS_PASSCODE}
+      - PORTCULLIS_SESSION_SECRET=${PORTCULLIS_SESSION_SECRET}
+      - PORTCULLIS_DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@portcullis_db:5432/${DB_NAME}
+    volumes:
+      # Validate/reload reads the root Caddyfile — never writable here.
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Generated Caddyfiles are written by the control plane...
+      - ./sites/generated:/etc/caddy/sites/generated
+      # ...while operator-manual blocks are read-only to it.
+      - ./sites/manual:/etc/caddy/sites/manual:ro
+      # Caddy CLI validation opens configured log writers, so this must be
+      # writable; the log reader consumes the same files read-only.
+      - ./data/caddy_logs:/var/log/caddy
+      # Backups are read-only to the control plane.
+      - backup_data:/backups:ro
+    depends_on:
+      portcullis_db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - portcullis_internal
       - caddy_gateway
       - db_network
-    env_file:
-      - .env
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', r => { process.exit(r.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1))"]
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:8080/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 15s
     logging:
       driver: "json-file"
       options:
