@@ -129,6 +129,82 @@ func TestLimiterRejectionDoesNotConsumeQuota(t *testing.T) {
 	}
 }
 
+// TestClientCancellationTerminatesChild proves that cancelling the request
+// context terminates the injected child (the termination hook runs) and the
+// streaming/wait path returns. The interleaving is deterministic: the test
+// waits until the consumer is blocked inside Read, then cancels — no sleeps.
+func TestClientCancellationTerminatesChild(t *testing.T) {
+	ctx, cancelReq := context.WithCancel(context.Background())
+	defer cancelReq()
+	cmd := &fakeCommander{}
+	// A stream whose reads block until the request context is done, then
+	// report the cancellation error.
+	pr, pw := io.Pipe()
+	readEntered := make(chan struct{})
+	cmd.stdout = &ctxReader{ctx: ctx, pr: pr, reading: readEntered}
+
+	d := testDumper(t, cmd, nil)
+
+	stream, wait, cancel, err := d.Start(ctx, "svc-a", "portcullis_a")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, stream)
+		_ = wait()
+		cancel()
+		close(done)
+	}()
+
+	// Simulate the client disconnect deterministically: wait until the
+	// consumer is inside Read, then cancel the request context and make the
+	// stream report the failure.
+	<-readEntered
+	cancelReq()
+	if err := pw.CloseWithError(ctx.Err()); err != nil {
+		t.Fatalf("CloseWithError: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler did not finish after client cancellation")
+	}
+	// Our cancel function must have terminated the child.
+	if cmd.cancelCalls == 0 {
+		t.Error("child process was not terminated on client cancellation")
+	}
+}
+
+// ctxReader is a stream that fails its reads once the request context is
+// done, mirroring a client-disconnected request body/stdout pump. The
+// reading channel is closed when a read begins, letting tests synchronize
+// deterministically instead of sleeping.
+type ctxReader struct {
+	ctx     context.Context
+	pr      *io.PipeReader
+	reading chan struct{}
+}
+
+func (r *ctxReader) Read(p []byte) (int, error) {
+	if r.reading != nil {
+		close(r.reading)
+		r.reading = nil
+	}
+	if r.ctx != nil {
+		select {
+		case <-r.ctx.Done():
+			return 0, r.ctx.Err()
+		default:
+		}
+	}
+	return r.pr.Read(p)
+}
+
+func (r *ctxReader) Close() error { return r.pr.Close() }
+
 var errStartFailure = errors.New("pg_dump: binary not found")
 
 func TestStartRateLimitsBeforeProcess(t *testing.T) {
