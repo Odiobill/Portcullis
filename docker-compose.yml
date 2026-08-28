@@ -51,6 +51,10 @@ services:
     # successfully, and version tracking makes reruns safe no-ops.
     build:
       context: ./apps/control-plane
+      args:
+        # Same DNS provider build as control_plane so both consumers of the
+        # image always carry the identical Caddy binary.
+        CADDY_DNS_PROVIDER: ${CADDY_DNS_PROVIDER:-}
     image: portcullis-control-plane:latest
     container_name: portcullis_migrate
     restart: "no"
@@ -79,11 +83,24 @@ services:
     # no Docker socket.
     build:
       context: ./apps/control-plane
+      args:
+        # The Caddy binary inside this image must match the gateway's
+        # DNS-01 capability: with a DNS-01 TLS mode, caddy validate/reload
+        # needs the caddy-dns plugin registered in the same binary.
+        CADDY_DNS_PROVIDER: ${CADDY_DNS_PROVIDER:-}
     image: portcullis-control-plane:latest
     container_name: portcullis_control_plane
     restart: unless-stopped
     mem_limit: 256m
     cpus: 1.0
+    # The root Caddyfile expands {env.XXX} placeholders (domain, TLS mode,
+    # DNS-01 credentials). validate/reload must see exactly the same values
+    # as the Caddy container, otherwise a service lifecycle action would
+    # silently rewrite the live Caddy configuration with defaults. Explicit
+    # environment entries below keep Compose precedence for the application
+    # database/owner settings.
+    env_file:
+      - .env
     environment:
       - PORTCULLIS_PASSCODE=${PORTCULLIS_PASSCODE}
       - PORTCULLIS_SESSION_SECRET=${PORTCULLIS_SESSION_SECRET}

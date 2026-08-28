@@ -142,3 +142,84 @@ func TestControlPlaneDockerfilePinsRuntimeDependencies(t *testing.T) {
 		t.Error("the Go build should be static (CGO_ENABLED=0) for a minimal runtime image")
 	}
 }
+
+// serviceBlock returns the Compose YAML block of one top-level service:
+// from its two-space-indented key line to the next service key (or EOF).
+func serviceBlock(t *testing.T, compose, name string) string {
+	t.Helper()
+	start := regexp.MustCompile(`(?m)^  ` + name + `:\n`).FindStringIndex(compose)
+	if start == nil {
+		t.Fatalf("service %q not found in docker-compose.yml", name)
+	}
+	rest := compose[start[1]:]
+	end := regexp.MustCompile(`(?m)^  [a-z0-9_]+:`).FindStringIndex(rest)
+	if end != nil {
+		rest = rest[:end[0]]
+	}
+	return rest
+}
+
+// TestComposeDNSProviderBuildArgsAndGatewayEnvFile pins the Heimdall-verified
+// DNS-01 deployment fixes: both build consumers of the control-plane image
+// receive the DNS provider build argument, and the control_plane container
+// receives the gateway environment file so caddy validate/reload expands the
+// root Caddyfile with the same domain/TLS/DNS values as the Caddy container
+// instead of silently overwriting live configuration with defaults.
+func TestComposeDNSProviderBuildArgsAndGatewayEnvFile(t *testing.T) {
+	compose := deployBoundary(t, "docker-compose.yml")
+
+	providerArg := "CADDY_DNS_PROVIDER: ${CADDY_DNS_PROVIDER:-}"
+	for _, svc := range []string{"migrate", "control_plane"} {
+		block := serviceBlock(t, compose, svc)
+		if !strings.Contains(block, "build:") || !strings.Contains(block, "context: ./apps/control-plane") {
+			t.Errorf("%s must build from apps/control-plane", svc)
+		}
+		if !strings.Contains(block, providerArg) {
+			t.Errorf("%s build must receive CADDY_DNS_PROVIDER: ${CADDY_DNS_PROVIDER:-}", svc)
+		}
+	}
+
+	cp := serviceBlock(t, compose, "control_plane")
+	if !regexp.MustCompile(`(?m)^    env_file:\n      - \.env\s*$`).MatchString(cp) {
+		t.Error("control_plane must include env_file: .env so Caddy CLI expansion matches the gateway environment")
+	}
+	if !strings.Contains(cp, "PORTCULLIS_DATABASE_URL") {
+		t.Error("control_plane explicit environment entries must be retained (Compose precedence over env_file)")
+	}
+}
+
+// TestControlPlaneDockerfileDNS01ProviderBuild pins the image-level DNS-01
+// fix: the control-plane image builds its Caddy binary through the same
+// conditional caddy:builder/xcaddy provider pattern as the gateway image,
+// and the selected binary is copied to /usr/sbin/caddy — the PATH-resolved
+// Alpine location — so a plugin build cannot be shadowed by the apk binary.
+func TestControlPlaneDockerfileDNS01ProviderBuild(t *testing.T) {
+	dockerfile := deployBoundary(t, filepath.Join("apps", "control-plane", "Dockerfile"))
+
+	if !regexp.MustCompile(`(?m)^FROM caddy:builder AS caddy-builder\s*$`).MatchString(dockerfile) {
+		t.Error("Dockerfile must have a caddy:builder stage named caddy-builder")
+	}
+	if !regexp.MustCompile(`(?m)^ARG CADDY_DNS_PROVIDER\s*$`).MatchString(dockerfile) {
+		t.Error("the builder stage must accept ARG CADDY_DNS_PROVIDER")
+	}
+	if !strings.Contains(dockerfile, "xcaddy build \\\n        --with github.com/caddy-dns/${CADDY_DNS_PROVIDER}") &&
+		!strings.Contains(dockerfile, "xcaddy build --with github.com/caddy-dns/${CADDY_DNS_PROVIDER}") {
+		t.Error("the builder stage must conditionally run xcaddy build --with github.com/caddy-dns/${CADDY_DNS_PROVIDER}")
+	}
+	if !strings.Contains(dockerfile, "cp /usr/bin/caddy /tmp/caddy") {
+		t.Error("an empty provider must fall back to the stock builder Caddy binary")
+	}
+	if !regexp.MustCompile(`COPY --from=caddy-builder /tmp/caddy /usr/sbin/caddy`).MatchString(dockerfile) {
+		t.Error("the selected Caddy binary must be copied to /usr/sbin/caddy (PATH-resolved Alpine location), never /usr/bin/caddy")
+	}
+	if regexp.MustCompile(`COPY --from=\S+ \S+ /usr/bin/caddy\s`).MatchString(dockerfile + "\n") {
+		t.Error("no builder output may be copied to the ineffective /usr/bin/caddy location")
+	}
+	// Runtime requirements stay intact.
+	if !strings.Contains(dockerfile, "apk add --no-cache caddy") {
+		t.Error("the runtime must still install the Alpine caddy package (provides runtime deps)")
+	}
+	if !strings.Contains(dockerfile, "caddy version") || !strings.Contains(dockerfile, "pg_dump --version") {
+		t.Error("image-build checks for caddy version and pg_dump --version must remain")
+	}
+}
