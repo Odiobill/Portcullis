@@ -44,24 +44,39 @@ func NewLimiter(window time.Duration) *Limiter {
 	return &Limiter{window: window, last: make(map[string]time.Time)}
 }
 
+// Reservation is an opaque token representing one acquired dump slot.
+// Release removes only the exact acquisition it was issued for, never a
+// newer slot acquired later for the same service.
+type Reservation struct {
+	serviceID string
+	acquired  time.Time
+}
+
 // Allow reports whether serviceID may start a dump at now, consuming the
-// slot when allowed. Rejected attempts never consume or extend quota.
-func (l *Limiter) Allow(serviceID string, now time.Time) bool {
+// slot when allowed. Rejected attempts never consume or extend quota. The
+// returned Reservation must be passed to Release if the dump does not
+// start.
+func (l *Limiter) Allow(serviceID string, now time.Time) (Reservation, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if last, ok := l.last[serviceID]; ok && now.Sub(last) < l.window {
-		return false
+		return Reservation{}, false
 	}
+	res := Reservation{serviceID: serviceID, acquired: now}
 	l.last[serviceID] = now
-	return true
+	return res, true
 }
 
-// Release returns the service's slot after a failed start: a start failure
-// is a rejected request and must not consume the five-minute window.
-func (l *Limiter) Release(serviceID string) {
+// Release removes the exact acquisition represented by the reservation —
+// and only that acquisition. If a newer successful start has replaced the
+// slot (for example a delayed first start failed after its window passed),
+// the newer slot is preserved so its five-minute limit stays intact.
+func (l *Limiter) Release(res Reservation) {
 	l.mu.Lock()
-	delete(l.last, serviceID)
-	l.mu.Unlock()
+	defer l.mu.Unlock()
+	if cur, ok := l.last[res.serviceID]; ok && cur.Equal(res.acquired) {
+		delete(l.last, res.serviceID)
+	}
 }
 
 // Commander starts the dump process. Production uses os/exec with the
@@ -148,15 +163,18 @@ func (d *Dumper) Args(dbName string) []string {
 // the repository-derived database name. It returns the stdout stream, the
 // process waiter, and the termination hook.
 func (d *Dumper) Start(ctx context.Context, serviceID, dbName string) (io.ReadCloser, func() error, func(), error) {
-	if !d.limiter.Allow(serviceID, d.now()) {
+	res, allowed := d.limiter.Allow(serviceID, d.now())
+	if !allowed {
 		return nil, nil, nil, ErrRateLimited
 	}
 	env := d.env()
 	stdout, wait, cancel, err := d.commander.Start(ctx, executable, d.Args(dbName), env)
 	if err != nil {
-		// A failed start is a rejected request: release the slot so the
-		// immediate retry reaches the process boundary.
-		d.limiter.Release(serviceID)
+		// A failed start is a rejected request: release the reservation so
+		// the immediate retry reaches the process boundary. Release is
+		// scoped to this exact acquisition and can never erase a newer
+		// successful slot for the same service.
+		d.limiter.Release(res)
 		return nil, nil, nil, fmt.Errorf("dump: pg_dump could not be started: %w", err)
 	}
 	return stdout, wait, cancel, nil

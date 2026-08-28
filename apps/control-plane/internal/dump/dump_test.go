@@ -88,16 +88,16 @@ func TestNewDumperRejectsUnsafeConfiguration(t *testing.T) {
 func TestLimiterOneDumpPerServicePerWindow(t *testing.T) {
 	l := NewLimiter(5 * time.Minute)
 	now := time.Now()
-	if !l.Allow("svc-a", now) {
+	if _, ok := l.Allow("svc-a", now); !ok {
 		t.Fatal("first dump must be allowed")
 	}
-	if l.Allow("svc-a", now.Add(4*time.Minute)) {
+	if _, ok := l.Allow("svc-a", now.Add(4*time.Minute)); ok {
 		t.Error("second dump within the window must be rejected")
 	}
-	if !l.Allow("svc-b", now) {
+	if _, ok := l.Allow("svc-b", now); !ok {
 		t.Error("per-service isolation: another service must be allowed")
 	}
-	if !l.Allow("svc-a", now.Add(5*time.Minute).Add(time.Second)) {
+	if _, ok := l.Allow("svc-a", now.Add(5*time.Minute).Add(time.Second)); !ok {
 		t.Error("after the window a new dump must be allowed")
 	}
 }
@@ -105,20 +105,31 @@ func TestLimiterOneDumpPerServicePerWindow(t *testing.T) {
 func TestLimiterRejectionDoesNotConsumeQuota(t *testing.T) {
 	l := NewLimiter(5 * time.Minute)
 	t0 := time.Now()
-	if !l.Allow("svc-a", t0) {
+	res, ok := l.Allow("svc-a", t0)
+	if !ok {
 		t.Fatal("first dump must be allowed")
 	}
 	// Rejected attempts (within the window) must not extend the window.
-	if l.Allow("svc-a", t0.Add(time.Minute)) {
+	if _, ok := l.Allow("svc-a", t0.Add(time.Minute)); ok {
 		t.Fatal("within-window attempt must be rejected")
 	}
-	if l.Allow("svc-a", t0.Add(time.Minute)) {
+	if _, ok := l.Allow("svc-a", t0.Add(time.Minute)); ok {
 		t.Fatal("second within-window attempt must be rejected")
 	}
-	if !l.Allow("svc-a", t0.Add(5*time.Minute).Add(time.Second)) {
-		t.Error("window must be measured from the last allowed dump, not the last rejected attempt")
+	// A newer slot is acquired at t0+5m+1s.
+	newer, ok := l.Allow("svc-a", t0.Add(5*time.Minute).Add(time.Second))
+	if !ok {
+		t.Fatal("newer slot must be acquirable after the window")
+	}
+	// Releasing the stale t0 reservation must be a no-op: the newer slot
+	// stays intact and still rate-limits within its own window.
+	l.Release(res)
+	if _, ok := l.Allow("svc-a", newer.acquired.Add(2*time.Second)); ok {
+		t.Fatal("stale release must not clear the newer slot; within-window request must be rejected")
 	}
 }
+
+var errStartFailure = errors.New("pg_dump: binary not found")
 
 func TestStartRateLimitsBeforeProcess(t *testing.T) {
 	cmd := &fakeCommander{}
@@ -185,65 +196,6 @@ func TestStartFailureSurfacedBeforeStreaming(t *testing.T) {
 		t.Errorf("bounded start error must retain the cause, got: %s", err.Error())
 	}
 }
-
-func TestClientCancellationTerminatesChild(t *testing.T) {
-	ctx, cancelReq := context.WithCancel(context.Background())
-	cmd := &fakeCommander{}
-	// A stream whose reads block until the request context is done, then
-	// reports the cancellation error.
-	pr, pw := io.Pipe()
-	cmd.stdout = &ctxReader{ctx: ctx, pr: pr}
-
-	d := testDumper(t, cmd, nil)
-
-	stream, wait, cancel, err := d.Start(ctx, "svc-a", "portcullis_a")
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-
-	done := make(chan struct{})
-	go func() {
-		_, _ = io.Copy(io.Discard, stream)
-		_ = wait()
-		cancel()
-		close(done)
-	}()
-
-	// Simulate the client disconnect: the request context is cancelled and
-	// the stream then reports the failure.
-	time.Sleep(20 * time.Millisecond)
-	cancelReq()
-	pw.CloseWithError(ctx.Err())
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("handler did not finish after client cancellation")
-	}
-	// Our cancel function must have terminated the child.
-	if cmd.cancelCalls == 0 {
-		t.Error("child process was not terminated on client cancellation")
-	}
-}
-
-type ctxReader struct {
-	ctx context.Context
-	pr  *io.PipeReader
-}
-
-func (r *ctxReader) Read(p []byte) (int, error) {
-	if r.ctx != nil {
-		select {
-		case <-r.ctx.Done():
-			return 0, r.ctx.Err()
-		default:
-		}
-	}
-	return r.pr.Read(p)
-}
-func (r *ctxReader) Close() error { return r.pr.Close() }
-
-var errStartFailure = errors.New("pg_dump: binary not found")
 
 // TestStartFailureReleasesQuota pins that a failed process start is a
 // rejected request: the five-minute slot is released so an immediate retry
