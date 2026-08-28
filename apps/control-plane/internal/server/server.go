@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"portcullis/control-plane/internal/caddyops"
 	"portcullis/control-plane/internal/registry"
 	"portcullis/control-plane/internal/session"
 )
@@ -35,6 +36,12 @@ type Config struct {
 	// dashboard renders an English "not available" note and no lifecycle
 	// route has any effect (foundation wiring without a database).
 	Lifecycle *registry.Lifecycle
+	// ReloadOperator runs the real Caddy reload command for the dashboard
+	// action. When nil the reload action is unavailable.
+	ReloadOperator registry.Operator
+	// LogReader reads the configured Caddy log. When nil the log section is
+	// unavailable.
+	LogReader *caddyops.LogReader
 	// Now overrides the wall clock; nil means time.Now. Injected for tests.
 	Now func() time.Time
 }
@@ -44,6 +51,8 @@ type Server struct {
 	passcodeHash [sha256.Size]byte
 	sessions     *session.Manager
 	lifecycle    *registry.Lifecycle
+	reloadOp     registry.Operator
+	logs         *caddyops.LogReader
 	logger       *slog.Logger
 	templates    *template.Template
 	now          func() time.Time
@@ -64,6 +73,8 @@ func New(cfg Config) *Server {
 		passcodeHash: sha256.Sum256([]byte(cfg.Passcode)),
 		sessions:     cfg.SessionManager,
 		lifecycle:    cfg.Lifecycle,
+		reloadOp:     cfg.ReloadOperator,
+		logs:         cfg.LogReader,
 		logger:       logger,
 		templates:    template.Must(template.ParseFS(templatesFS, "templates/*.html")),
 		now:          now,
@@ -84,6 +95,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /services/{id}/edit", s.requireSession(s.handleEditServiceForm))
 	mux.HandleFunc("POST /services/{id}", s.requireSession(s.requireCSRF(s.handleEditService)))
 	mux.HandleFunc("POST /services/{id}/delete", s.requireSession(s.requireCSRF(s.handleDeleteService)))
+	mux.HandleFunc("POST /caddy/reload", s.requireSession(s.requireCSRF(s.handleCaddyReload)))
 	mux.HandleFunc("POST /logout", s.handleLogout)
 	return mux
 }
@@ -143,7 +155,10 @@ func (s *Server) requireSession(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	data := dashboardData{CSRF: s.csrfFor(r)}
+	data := dashboardData{
+		CSRF:         s.csrfFor(r),
+		ReloadStatus: r.URL.Query().Get("reload"),
+	}
 	if s.lifecycle == nil {
 		data.RegistryAvailable = false
 	} else {
@@ -155,18 +170,48 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 		data.Services = services
 	}
+	if s.logs != nil {
+		entries, err := s.logs.Recent()
+		if err != nil {
+			s.logger.Info("caddy log unavailable", "err", err)
+			data.LogsAvailable = false
+		} else {
+			data.LogsAvailable = true
+			data.Logs = entries
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.templates.ExecuteTemplate(w, "dashboard.html", data); err != nil {
 		s.logger.Error("render dashboard", "err", err)
 	}
 }
 
-// dashboardData renders the authenticated service list.
+// handleCaddyReload runs the injected Caddy reload command. Session and
+// CSRF verification happen in the wrapping middleware before any command
+// can execute.
+func (s *Server) handleCaddyReload(w http.ResponseWriter, r *http.Request) {
+	if s.reloadOp == nil {
+		http.Error(w, "Caddy reload is not available in this build", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.reloadOp.Reload(); err != nil {
+		s.logger.Error("caddy reload failed", "err", err)
+		http.Redirect(w, r, "/dashboard?reload=failed", http.StatusSeeOther)
+		return
+	}
+	s.logger.Info("caddy reload succeeded via dashboard")
+	http.Redirect(w, r, "/dashboard?reload=ok", http.StatusSeeOther)
+}
+
+// dashboardData renders the authenticated service list and Caddy logs.
 type dashboardData struct {
 	RegistryAvailable bool
 	Services          []registry.Service
 	CSRF              string
 	Error             string
+	ReloadStatus      string // "", "ok", or "failed" (from the PRG redirect)
+	LogsAvailable     bool
+	Logs              []caddyops.LogEntry
 }
 
 // serviceFormData renders the create/edit service form.

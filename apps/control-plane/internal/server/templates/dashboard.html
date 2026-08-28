@@ -16,7 +16,10 @@
              color: #fff; cursor: pointer; }
     .danger { background: #dc2626; }
     .error { color: #f87171; }
+    .ok { color: #4ade80; }
     .muted { color: #9ca3af; }
+    .raw { font-family: monospace; font-size: 0.8rem; word-break: break-all; }
+    h2 { margin-top: 2rem; font-size: 1.1rem; }
   </style>
 </head>
 <body>
@@ -25,6 +28,9 @@
     <form method="post" action="/logout"><button type="submit">Sign out</button></form>
   </header>
   <main>
+    {{if .ReloadStatus}}
+      {{if eq .ReloadStatus "ok"}}<p class="ok">Caddy reload succeeded.</p>{{else if eq .ReloadStatus "failed"}}<p class="error">Caddy reload failed. The attempt did not succeed; check the configuration and try again.</p>{{end}}
+    {{end}}
     {{if not .RegistryAvailable}}
       <p class="muted">Service management is not available in this build. The registry has not been connected yet.</p>
     {{else}}
@@ -53,6 +59,30 @@
       {{else}}
       <p class="muted">No services are registered yet. Add your first reverse-proxy or static service.</p>
       {{end}}
+    {{end}}
+
+    <h2>Caddy operations</h2>
+    <form method="post" action="/caddy/reload">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button type="submit" {{if not .CSRF}}disabled{{end}}>Reload Caddy</button>
+    </form>
+
+    <h2>Recent Caddy logs</h2>
+    {{if .LogsAvailable}}
+    <table>
+      <tr><th>Time (UTC)</th><th>Host</th><th>Status</th><th>Client IP</th><th>Line</th></tr>
+      {{range .Logs}}
+      <tr>
+        <td>{{.Time}}</td>
+        <td>{{if .Host}}{{.Host}}{{else}}&mdash;{{end}}</td>
+        <td>{{if .Status}}{{.Status}}{{else}}&mdash;{{end}}</td>
+        <td>{{if .RemoteIP}}{{.RemoteIP}}{{else}}&mdash;{{end}}</td>
+        <td class="raw">{{if .Raw}}{{.Raw}}{{else}}(JSON access log entry){{end}}</td>
+      </tr>
+      {{end}}
+    </table>
+    {{else}}
+    <p class="muted">The Caddy log is not available in this build.</p>
     {{end}}
   </main>
 </body>
