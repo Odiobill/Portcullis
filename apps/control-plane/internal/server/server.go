@@ -186,12 +186,18 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleCaddyReload runs the injected Caddy reload command. Session and
-// CSRF verification happen in the wrapping middleware before any command
-// can execute.
+// handleCaddyReload runs the injected Caddy validate then reload commands.
+// Session and CSRF verification happen in the wrapping middleware before
+// any command can execute. A validation failure must never reach the
+// reload command and is reported through the failed PRG outcome.
 func (s *Server) handleCaddyReload(w http.ResponseWriter, r *http.Request) {
 	if s.reloadOp == nil {
 		http.Error(w, "Caddy reload is not available in this build", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.reloadOp.Validate(); err != nil {
+		s.logger.Error("caddy validation failed before reload", "err", err)
+		http.Redirect(w, r, "/dashboard?reload=failed", http.StatusSeeOther)
 		return
 	}
 	if err := s.reloadOp.Reload(); err != nil {

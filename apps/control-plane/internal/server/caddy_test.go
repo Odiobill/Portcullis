@@ -79,8 +79,9 @@ func TestReloadSuccessFlow(t *testing.T) {
 	if loc := rec.Header().Get("Location"); !strings.Contains(loc, "reload=ok") {
 		t.Errorf("reload redirect = %q, want reload=ok", loc)
 	}
-	if len(f.op.calls) != 1 || f.op.calls[0] != "reload" {
-		t.Errorf("operator calls = %v, want exactly [reload]", f.op.calls)
+	// The dashboard action must validate first, then reload.
+	if strings.Join(f.op.calls, ",") != "validate,reload" {
+		t.Errorf("operator calls = %v, want exactly [validate reload]", f.op.calls)
 	}
 
 	// Dashboard must show the success message.
@@ -90,6 +91,31 @@ func TestReloadSuccessFlow(t *testing.T) {
 	}
 	if strings.Contains(dash.Body.String(), "reload failed") {
 		t.Error("success flow must not claim failure")
+	}
+}
+
+func TestReloadValidateFailurePreventsReload(t *testing.T) {
+	f := newOpsFixture(t, caddyJSONLine(0))
+	f.op.validateErr = errors.New("caddy validation failed (test)")
+	token, csrf := f.authedSession(t)
+
+	rec := authedPost(t, &serviceFixture{srv: f.srv}, token, csrf, "/caddy/reload", nil)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("reload status = %d, want 303", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); !strings.Contains(loc, "reload=failed") {
+		t.Errorf("reload redirect = %q, want reload=failed", loc)
+	}
+	// A validation failure must never reach the reload command.
+	if strings.Join(f.op.calls, ",") != "validate" {
+		t.Errorf("operator calls = %v, want exactly [validate] with no reload", f.op.calls)
+	}
+	dash := authedGet(t, &serviceFixture{srv: f.srv}, token, "/dashboard?reload=failed")
+	if !strings.Contains(dash.Body.String(), "reload failed") {
+		t.Errorf("dashboard lacks failure message:\n%s", dash.Body.String())
+	}
+	if strings.Contains(dash.Body.String(), "succeeded") {
+		t.Error("validation failure must never claim success")
 	}
 }
 
@@ -105,9 +131,10 @@ func TestReloadFailureFlowNeverClaimsSuccess(t *testing.T) {
 	if loc := rec.Header().Get("Location"); !strings.Contains(loc, "reload=failed") {
 		t.Errorf("reload redirect = %q, want reload=failed", loc)
 	}
-	// The command was attempted exactly once.
-	if len(f.op.calls) != 1 {
-		t.Errorf("operator calls = %v", f.op.calls)
+	// Validate runs first, then the reload; both are attempted and the
+	// reload failure is the surfaced outcome.
+	if strings.Join(f.op.calls, ",") != "validate,reload" {
+		t.Errorf("operator calls = %v, want [validate reload]", f.op.calls)
 	}
 
 	dash := authedGet(t, &serviceFixture{srv: f.srv}, token, "/dashboard?reload=failed")
