@@ -10,7 +10,9 @@ import (
 	"crypto/subtle"
 	"embed"
 	"errors"
+	"fmt"
 	"html/template"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -18,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"portcullis/control-plane/internal/backups"
 	"portcullis/control-plane/internal/caddyops"
 	"portcullis/control-plane/internal/registry"
 	"portcullis/control-plane/internal/session"
@@ -42,6 +45,9 @@ type Config struct {
 	// LogReader reads the configured Caddy log. When nil the log section is
 	// unavailable.
 	LogReader *caddyops.LogReader
+	// Backups serves the read-only backup browser. When nil the backup
+	// section is unavailable.
+	Backups *backups.Browser
 	// Now overrides the wall clock; nil means time.Now. Injected for tests.
 	Now func() time.Time
 }
@@ -53,6 +59,7 @@ type Server struct {
 	lifecycle    *registry.Lifecycle
 	reloadOp     registry.Operator
 	logs         *caddyops.LogReader
+	backups      *backups.Browser
 	logger       *slog.Logger
 	templates    *template.Template
 	now          func() time.Time
@@ -75,6 +82,7 @@ func New(cfg Config) *Server {
 		lifecycle:    cfg.Lifecycle,
 		reloadOp:     cfg.ReloadOperator,
 		logs:         cfg.LogReader,
+		backups:      cfg.Backups,
 		logger:       logger,
 		templates:    template.Must(template.ParseFS(templatesFS, "templates/*.html")),
 		now:          now,
@@ -95,6 +103,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /services/{id}/edit", s.requireSession(s.handleEditServiceForm))
 	mux.HandleFunc("POST /services/{id}", s.requireSession(s.requireCSRF(s.handleEditService)))
 	mux.HandleFunc("POST /services/{id}/delete", s.requireSession(s.requireCSRF(s.handleDeleteService)))
+	mux.HandleFunc("GET /backups/{name}", s.requireSession(s.handleBackupDownload))
 	mux.HandleFunc("POST /caddy/reload", s.requireSession(s.requireCSRF(s.handleCaddyReload)))
 	mux.HandleFunc("POST /logout", s.handleLogout)
 	return mux
@@ -180,9 +189,45 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			data.Logs = entries
 		}
 	}
+	if s.backups != nil {
+		files, err := s.backups.List()
+		if err != nil {
+			s.logger.Info("backup store unavailable", "err", err)
+			data.BackupsAvailable = true
+			data.BackupsError = "The backup store is not available."
+		} else {
+			data.BackupsAvailable = true
+			data.Backups = files
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.templates.ExecuteTemplate(w, "dashboard.html", data); err != nil {
 		s.logger.Error("render dashboard", "err", err)
+	}
+}
+
+// handleBackupDownload streams one listed backup as a download. The name
+// comes only from the route segment, is validated as a safe basename, and
+// is resolved inside the configured store; no request input can select a
+// directory or arbitrary host path.
+func (s *Server) handleBackupDownload(w http.ResponseWriter, r *http.Request) {
+	if s.backups == nil {
+		http.Error(w, "The backup store is not available in this build.", http.StatusServiceUnavailable)
+		return
+	}
+	f, meta, err := s.backups.Open(r.PathValue("name"))
+	if err != nil {
+		s.logger.Info("backup download rejected", "err", err)
+		http.Error(w, "The selected backup was not found.", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", meta.Name))
+	w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
+	if _, err := io.Copy(w, f); err != nil {
+		s.logger.Error("backup download stream failed", "err", err)
 	}
 }
 
@@ -218,6 +263,9 @@ type dashboardData struct {
 	ReloadStatus      string // "", "ok", or "failed" (from the PRG redirect)
 	LogsAvailable     bool
 	Logs              []caddyops.LogEntry
+	BackupsAvailable  bool
+	Backups           []backups.File
+	BackupsError      string
 }
 
 // serviceFormData renders the create/edit service form.

@@ -59,3 +59,16 @@ go build ./...
 
 Out of scope for Slices 2–3: applying migrations, Caddy execution, backups, Compose wiring,
 and deployment (see `Projects/Portcullis/go-replacement-work-slices.md`).
+
+## Backup browser (Slice 4b)
+
+`internal/backups` is a read-only browser over one configured absolute
+backup directory (default `/backups`). It lists regular files directly
+inside that directory — newest first, name tie-break — and serves a
+selected listed file via `GET /backups/{name}` after owner-session
+verification. Download names are validated as safe basenames and
+resolved inside the store; symlinks, directories, and non-regular files
+are never listed or downloadable; all failures return bounded English
+errors without host paths. Downloads stream with
+`application/octet-stream`, safe attachment disposition, and correct
+length. No backup creation, deletion, retention, or upload exists.

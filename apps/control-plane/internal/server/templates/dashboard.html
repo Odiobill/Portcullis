@@ -84,6 +84,27 @@
     {{else}}
     <p class="muted">The Caddy log is not available in this build.</p>
     {{end}}
+
+    <h2>Backups</h2>
+    {{if not .BackupsAvailable}}
+      <p class="muted">The backup store is not available in this build.</p>
+    {{else if .BackupsError}}
+      <p class="error">{{.BackupsError}}</p>
+    {{else if .Backups}}
+    <table>
+      <tr><th>Name</th><th>Size (bytes)</th><th>Last modified (UTC)</th><th>Actions</th></tr>
+      {{range .Backups}}
+      <tr>
+        <td>{{.Name}}</td>
+        <td>{{.Size}}</td>
+        <td>{{.ModTime.UTC.Format "2006-01-02 15:04:05"}}</td>
+        <td><a href="/backups/{{.Name}}">Download</a></td>
+      </tr>
+      {{end}}
+    </table>
+    {{else}}
+    <p class="muted">No backups found.</p>
+    {{end}}
   </main>
 </body>
 </html>
