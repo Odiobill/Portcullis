@@ -302,3 +302,47 @@ func TestDeleteUnprovisionedStillWorks(t *testing.T) {
 		t.Error("record not deleted")
 	}
 }
+
+// TestEditPreservesProvisioningMetadata pins the immutability invariant:
+// DBName/DBUser are server-owned metadata that survive any edit regardless
+// of caller-supplied values, so the fail-closed deletion guard keeps
+// protecting the real project database afterwards.
+func TestEditPreservesProvisioningMetadata(t *testing.T) {
+	f := newProvisionFixture(t)
+	created, cred, err := f.lc.CreateProvisioned(context.Background(), lcProxyService("ignored"))
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Simulate an owner edit form: DB fields are absent (empty).
+	edited := created
+	edited.Domains = []string{"moved.example.com"}
+	edited.DBName = ""
+	edited.DBUser = ""
+	updated, err := f.lc.Edit(context.Background(), edited)
+	if err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+	if updated.DBName != cred.DBName || updated.DBUser != cred.DBUser {
+		t.Fatalf("edit cleared provisioning metadata: %q/%q, want %q/%q",
+			updated.DBName, updated.DBUser, cred.DBName, cred.DBUser)
+	}
+	stored := f.repo.services[created.ID]
+	if stored.DBName != cred.DBName || stored.DBUser != cred.DBUser {
+		t.Fatalf("stored metadata cleared: %q/%q", stored.DBName, stored.DBUser)
+	}
+
+	// The fail-closed deletion guard must still protect the database.
+	f.op.calls = nil
+	f.repo.calls = nil
+	_, err = f.lc.Delete(context.Background(), created.ID)
+	if !errors.Is(err, ErrProvisionedService) {
+		t.Fatalf("want ErrProvisionedService after edit, got %v", err)
+	}
+	if len(f.op.calls) != 0 {
+		t.Errorf("operator touched during fail-closed delete: %v", f.op.calls)
+	}
+	if _, ok := f.repo.services[created.ID]; !ok {
+		t.Error("record deleted despite fail-closed guard")
+	}
+}

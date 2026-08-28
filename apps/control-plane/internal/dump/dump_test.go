@@ -242,3 +242,32 @@ func (r *ctxReader) Read(p []byte) (int, error) {
 	return r.pr.Read(p)
 }
 func (r *ctxReader) Close() error { return r.pr.Close() }
+
+var errStartFailure = errors.New("pg_dump: binary not found")
+
+// TestStartFailureReleasesQuota pins that a failed process start is a
+// rejected request: the five-minute slot is released so an immediate retry
+// reaches the commander again instead of ErrRateLimited.
+func TestStartFailureReleasesQuota(t *testing.T) {
+	cmd := &fakeCommander{startErr: errStartFailure}
+	d := testDumper(t, cmd, nil)
+
+	_, _, _, err1 := d.Start(context.Background(), "svc-a", "portcullis_a")
+	if err1 == nil {
+		t.Fatal("first start must fail")
+	}
+	if !errors.Is(err1, errStartFailure) {
+		t.Fatalf("primary start failure not preserved: %v", err1)
+	}
+
+	_, _, _, err2 := d.Start(context.Background(), "svc-a", "portcullis_a")
+	if errors.Is(err2, ErrRateLimited) {
+		t.Fatal("failed start consumed the rate quota; immediate retry must reach the commander")
+	}
+	if err2 == nil {
+		t.Fatal("second start must fail with the injected start error")
+	}
+	if len(cmd.starts) != 2 {
+		t.Fatalf("commander starts = %d, want 2", len(cmd.starts))
+	}
+}

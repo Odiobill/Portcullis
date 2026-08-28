@@ -83,6 +83,16 @@ func newDumpFixture(t *testing.T, cfgErr func(*fakeDumpCommander)) *dumpFixture 
 	return &dumpFixture{srv: srv, repo: repo, op: op, prov: prov, cmd: cmd}
 }
 
+type dumpEffects struct {
+	processStarts    int
+	provisionerCalls int
+	recordCount      int
+}
+
+func (f *dumpFixture) effects() dumpEffects {
+	return dumpEffects{processStarts: f.cmd.starts, provisionerCalls: f.prov.calls, recordCount: len(f.repo.services)}
+}
+
 func (f *dumpFixture) provisionedSessionAndCSRF(t *testing.T) (token, csrf, serviceID string) {
 	t.Helper()
 	rec := login(t, f.srv, testPasscode)
@@ -180,16 +190,6 @@ func assertNoDumpEffects(t *testing.T, f *dumpFixture, before dumpEffects) {
 	if strings.Contains(strings.Join(f.repo.calls, ","), "delete:") {
 		t.Error("repository mutation without auth/CSRF")
 	}
-}
-
-type dumpEffects struct {
-	processStarts    int
-	provisionerCalls int
-	recordCount      int
-}
-
-func (f *dumpFixture) effects() dumpEffects {
-	return dumpEffects{processStarts: f.cmd.starts, provisionerCalls: f.prov.calls, recordCount: len(f.repo.services)}
 }
 
 func TestDumpBearerHeaderDoesNotAuthorize(t *testing.T) {
@@ -327,4 +327,33 @@ func TestDumpDashboardActionOnlyForProvisionedServices(t *testing.T) {
 	if strings.Contains(body, f.prov.specs[0].Password) {
 		t.Error("dashboard leaked the provisioned password")
 	}
+}
+
+// TestDumpRejectsInconsistentDBIdentity pins the fail-closed identity
+// boundary: stored DB identifiers that are missing or do not exactly match
+// the server-derived expected values must never reach pg_dump. Zero limiter
+// and process effects.
+func TestDumpRejectsInconsistentDBIdentity(t *testing.T) {
+	f := newDumpFixture(t, nil)
+	token, csrf, id := f.provisionedSessionAndCSRF(t)
+
+	// Simulate registry metadata corruption: wrong database name and
+	// missing user.
+	corrupted := f.repo.services[id]
+	corrupted.DBName = "totally_wrong_db"
+	corrupted.DBUser = ""
+	f.repo.services[id] = corrupted
+
+	before := f.effects()
+	rec2 := authedPost(t, &serviceFixture{srv: f.srv}, token, csrf, "/services/"+id+"/dump", nil)
+	if rec2.Code != http.StatusConflict {
+		t.Fatalf("inconsistent identity status = %d, want 409", rec2.Code)
+	}
+	if strings.Contains(rec2.Body.String(), "totally_wrong_db") {
+		t.Error("error must not echo the corrupt identifier")
+	}
+	if f.cmd.starts != 0 {
+		t.Errorf("process started despite inconsistent identity: %d", f.cmd.starts)
+	}
+	assertNoDumpEffects(t, f, before)
 }

@@ -291,3 +291,49 @@ func TestDeleteProvisionedFailsClosedAtHTTPLevel(t *testing.T) {
 		t.Error("record deleted despite fail-closed guard")
 	}
 }
+
+// TestHTTPEditPreservesMetadataAndDeleteFailsClosed proves at the HTTP
+// layer that editing a provisioned service keeps its immutable database
+// metadata and the subsequent deletion fails closed with 409 and no
+// Caddy/registry mutation.
+func TestHTTPEditPreservesMetadataAndDeleteFailsClosed(t *testing.T) {
+	f := newProvisioningFixture(t)
+	rec := login(t, f.srv, testPasscode)
+	token := sessionTokenFrom(t, rec)
+	csrf, _ := f.srv.sessions.CSRFToken(token, time.Now())
+
+	if rec2 := authedPost(t, &serviceFixture{srv: f.srv}, token, csrf, "/services", provisionForm()); rec2.Code != http.StatusOK {
+		t.Fatalf("seed create failed: %d", rec2.Code)
+	}
+	var id string
+	for key := range f.repo.services {
+		id = key
+	}
+	stored := f.repo.services[id]
+
+	// Edit with a form that carries no DB fields (as the owner form does).
+	edit := proxyForm()
+	edit.Set("domains", "moved.example.com")
+	if rec3 := authedPost(t, &serviceFixture{srv: f.srv}, token, csrf, "/services/"+id, edit); rec3.Code != http.StatusSeeOther {
+		t.Fatalf("edit failed: %d", rec3.Code)
+	}
+	after := f.repo.services[id]
+	if after.DBName != stored.DBName || after.DBUser != stored.DBUser {
+		t.Fatalf("edit cleared metadata: %q/%q, want %q/%q", after.DBName, after.DBUser, stored.DBName, stored.DBUser)
+	}
+
+	// Deletion must fail closed with no mutation.
+	beforeCount := len(f.repo.services)
+	beforeProv := f.prov.calls
+	rec4 := authedPost(t, &serviceFixture{srv: f.srv}, token, csrf, "/services/"+id+"/delete", nil)
+	if rec4.Code != http.StatusConflict {
+		t.Fatalf("delete status = %d, want 409", rec4.Code)
+	}
+	if strings.ToLower(rec4.Body.String()) == "" || !strings.Contains(strings.ToLower(rec4.Body.String()), "database") {
+		t.Errorf("fail-closed explanation missing:\n%s", rec4.Body.String())
+	}
+	if len(f.repo.services) != beforeCount || f.prov.calls != beforeProv {
+		t.Errorf("effects changed during fail-closed delete: records %d -> %d, provisioner calls %d -> %d",
+			beforeCount, len(f.repo.services), beforeProv, f.prov.calls)
+	}
+}

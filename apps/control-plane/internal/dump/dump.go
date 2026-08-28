@@ -56,6 +56,14 @@ func (l *Limiter) Allow(serviceID string, now time.Time) bool {
 	return true
 }
 
+// Release returns the service's slot after a failed start: a start failure
+// is a rejected request and must not consume the five-minute window.
+func (l *Limiter) Release(serviceID string) {
+	l.mu.Lock()
+	delete(l.last, serviceID)
+	l.mu.Unlock()
+}
+
 // Commander starts the dump process. Production uses os/exec with the
 // fixed pg_dump binary; tests inject fakes and never execute anything.
 type Commander interface {
@@ -146,6 +154,9 @@ func (d *Dumper) Start(ctx context.Context, serviceID, dbName string) (io.ReadCl
 	env := d.env()
 	stdout, wait, cancel, err := d.commander.Start(ctx, executable, d.Args(dbName), env)
 	if err != nil {
+		// A failed start is a rejected request: release the slot so the
+		// immediate retry reaches the process boundary.
+		d.limiter.Release(serviceID)
 		return nil, nil, nil, fmt.Errorf("dump: pg_dump could not be started: %w", err)
 	}
 	return stdout, wait, cancel, nil

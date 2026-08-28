@@ -136,6 +136,12 @@ func (l *Lifecycle) Edit(ctx context.Context, s Service) (Service, error) {
 	if err != nil {
 		return Service{}, err
 	}
+	// Database identifiers are immutable server-owned metadata: an owner
+	// edit form never carries them, and caller-supplied values must never
+	// clear or alter them. Otherwise an edit would strip the marker that
+	// keeps deletion fail-closed and could orphan the real project database.
+	prepared.DBName = prior.DBName
+	prepared.DBUser = prior.DBUser
 	if err := l.repo.Update(ctx, prepared); err != nil {
 		return Service{}, err
 	}

@@ -23,6 +23,7 @@ import (
 	"portcullis/control-plane/internal/backups"
 	"portcullis/control-plane/internal/caddyops"
 	"portcullis/control-plane/internal/dump"
+	"portcullis/control-plane/internal/provision"
 	"portcullis/control-plane/internal/registry"
 	"portcullis/control-plane/internal/session"
 )
@@ -586,6 +587,17 @@ func (s *Server) handleServiceDump(w http.ResponseWriter, r *http.Request) {
 	}
 	if svc.DBName == "" {
 		http.Error(w, "This service has no provisioned database to dump.", http.StatusConflict)
+		return
+	}
+	// Fail-closed identity boundary: the stored database identifiers must
+	// be present and exactly match the values derivable from the immutable
+	// service ID. Corrupted or missing metadata must never reach the dump
+	// process as a command option. This check precedes the rate limiter and
+	// any process action, so it consumes no quota.
+	wantDB, wantUser, idErr := provision.Identifiers(svc.ID)
+	if idErr != nil || svc.DBName == "" || svc.DBUser == "" || svc.DBName != wantDB || svc.DBUser != wantUser {
+		s.logger.Error("dump rejected: inconsistent database identity", "service", svc.ID)
+		http.Error(w, "This service has inconsistent database metadata; the dump was not started. Repair the service registration first.", http.StatusConflict)
 		return
 	}
 
