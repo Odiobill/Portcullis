@@ -49,6 +49,25 @@ func TestNewBrowserAcceptsAbsoluteDirectory(t *testing.T) {
 	}
 }
 
+// TestNewBrowserRejectsTraversalSegments pins fail-closed configuration:
+// any raw `..` path segment in the configured backup directory is rejected
+// before cleaning, so traversal-bearing absolute paths can never be
+// silently cleaned to a different host directory.
+func TestNewBrowserRejectsTraversalSegments(t *testing.T) {
+	for _, dir := range []string{
+		"/backups/../etc",
+		"/backups/..",
+		"/..",
+		"/backups/sub/../../etc",
+		"/backups/..\x00hidden",
+	} {
+		b, err := NewBrowser(dir)
+		if err == nil {
+			t.Errorf("traversal-bearing directory %q accepted (resolved dir %q)", dir, b.dir)
+		}
+	}
+}
+
 func TestListOnlyRegularFilesNewestFirst(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 8, 28, 10, 0, 0, 0, time.UTC)
@@ -213,6 +232,52 @@ func TestOpenMissingFileFailsClosed(t *testing.T) {
 	}
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+}
+
+// TestOpenSymlinkSwapAfterValidationCannotEscape is the deterministic
+// pre-open replacement seam for the Lstat→Open symlink-swap race: after
+// containment validation but before the open, the validated regular entry
+// is exchanged for a symlink to an outside secret file. The no-follow open
+// must fail closed with ErrNotFound and never yield the secret content.
+func TestOpenSymlinkSwapAfterValidationCannotEscape(t *testing.T) {
+	dir := t.TempDir()
+	secret := filepath.Join(dir, "..", "secret.txt")
+	if err := os.WriteFile(secret, []byte("TOP-SECRET"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	touchFile(t, dir, "svc.dump", 5, time.Time{})
+	b, _ := NewBrowser(dir)
+
+	swapHook = func(storeDir, name string) {
+		if storeDir != dir || name != "svc.dump" {
+			t.Errorf("swap hook called with unexpected dir/name: %q %q", storeDir, name)
+			return
+		}
+		// The attacker swaps the validated regular file for a symlink
+		// pointing outside the store just before the open.
+		if err := os.Remove(filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(secret, filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer func() { swapHook = nil }()
+
+	f, _, err := b.Open("svc.dump")
+	if err == nil {
+		f.Close()
+		t.Fatal("a symlink swapped in after validation must not open")
+	}
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+	if strings.Contains(err.Error(), "TOP-SECRET") {
+		t.Error("error must not leak outside content")
+	}
+	if strings.Contains(err.Error(), dir) {
+		t.Error("error must not expose host paths")
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -41,6 +42,11 @@ type Browser struct {
 	dir string
 }
 
+// swapHook, when set, runs after containment validation and before the
+// open. It exists solely so tests can deterministically simulate the
+// pre-open symlink-swap race; production wiring leaves it nil.
+var swapHook func(dir, name string)
+
 // NewBrowser returns a Browser over an absolute, structurally safe
 // directory. Empty, relative, or unsafe values fail closed.
 func NewBrowser(dir string) (*Browser, error) {
@@ -52,6 +58,14 @@ func NewBrowser(dir string) (*Browser, error) {
 	}
 	if !filepath.IsAbs(dir) {
 		return nil, fmt.Errorf("backups: directory %q must be an absolute path", dir)
+	}
+	// Reject traversal segments in the raw configured value before any
+	// cleaning, so a traversal-bearing path can never be silently resolved
+	// to a different host directory.
+	for _, segment := range strings.Split(filepath.ToSlash(dir), "/") {
+		if segment == ".." {
+			return nil, fmt.Errorf("backups: directory must not contain \"..\" segments")
+		}
 	}
 	return &Browser{dir: filepath.Clean(dir)}, nil
 }
@@ -131,17 +145,37 @@ func (b *Browser) Open(name string) (*os.File, File, error) {
 		return nil, File{}, fmt.Errorf("%w", ErrNotFound)
 	}
 
-	// Lstat never follows symlinks: a symlinked entry is not downloadable.
-	info, err := os.Lstat(resolved)
-	if err != nil || !info.Mode().IsRegular() {
-		return nil, File{}, fmt.Errorf("%w", ErrNotFound)
+	if swapHook != nil {
+		swapHook(b.dir, name)
 	}
 
-	f, err := os.Open(resolved)
+	// Open with O_NOFOLLOW and verify the finally opened descriptor is a
+	// regular file via fstat: a symlink swapped in after validation cannot
+	// be followed, and the fstat applies to the opened object itself, so
+	// the historic Lstat→Open symlink-swap window is closed.
+	f, err := openNoFollow(resolved)
 	if err != nil {
+		return nil, File{}, fmt.Errorf("%w", ErrNotFound)
+	}
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		f.Close()
 		return nil, File{}, fmt.Errorf("%w", ErrNotFound)
 	}
 	return f, File{Name: name, Size: info.Size(), ModTime: info.ModTime()}, nil
 }
 
 // unused guard for fs import removal if structure changes.
+
+// openNoFollow opens path read-only without following a final symlink
+// component (O_NOFOLLOW, Linux deployment target) and hands back the opened
+// descriptor. O_NONBLOCK prevents blocking on a swapped-in FIFO; the caller
+// verifies regularity on the opened descriptor itself. Any failure —
+// including ELOOP from a final symlink — maps to the caller's ErrNotFound.
+func openNoFollow(path string) (*os.File, error) {
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	return os.NewFile(uintptr(fd), path), nil
+}
