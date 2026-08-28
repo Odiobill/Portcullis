@@ -22,8 +22,8 @@ type fakePool struct {
 func (f *fakePool) Begin(ctx context.Context) (pgx.Tx, error) {
 	tx := &fakeTx{applied: map[string]bool{}, failOn: f.failOnTx}
 	if len(f.txs) > 0 {
-		// Carry the version state forward so consecutive Applies observe
-		// previously recorded versions (rerun semantics).
+		// Carry the version state forward so later transactions observe
+		// versions recorded (committed) by earlier ones.
 		for k, v := range f.txs[len(f.txs)-1].applied {
 			tx.applied[k] = v
 		}
@@ -31,6 +31,9 @@ func (f *fakePool) Begin(ctx context.Context) (pgx.Tx, error) {
 	f.txs = append(f.txs, tx)
 	return tx, nil
 }
+
+// beginCount returns the number of transactions begun so far.
+func (f *fakePool) beginCount() int { return len(f.txs) }
 
 // fakeTx records every executed statement and simulates the
 // schema_migrations table in memory.
@@ -115,10 +118,15 @@ func migrationsFS(files map[string]string) fstest.MapFS {
 	return fs
 }
 
-// TestApplyRunsPendingMigrationsInOrderAndRecordsVersions pins that a fresh
-// database receives every committed migration exactly once, in filename
-// order, each inside its own transaction that records the applied version.
-func TestApplyRunsPendingMigrationsInOrderAndRecordsVersions(t *testing.T) {
+// trackingSQL is the one statement the tracking transaction may run.
+const trackingSQLFragment = "CREATE TABLE IF NOT EXISTS schema_migrations"
+
+// TestApplyRunsPendingMigrationsInOwnTransactions pins the Slice 5
+// correction: a fresh database receives every migration exactly once, in
+// filename order, and each pending migration runs inside its OWN
+// transaction together with its version record — not one big
+// all-pending-migrations transaction.
+func TestApplyRunsPendingMigrationsInOwnTransactions(t *testing.T) {
 	pool := &fakePool{}
 	fsys := migrationsFS(map[string]string{
 		"000002_add_index.up.sql": "CREATE INDEX idx_demo ON services(id);",
@@ -132,37 +140,125 @@ func TestApplyRunsPendingMigrationsInOrderAndRecordsVersions(t *testing.T) {
 	if applied != 2 {
 		t.Errorf("applied = %d, want 2", applied)
 	}
-	tx := pool.txs[0]
-	// Statement order: idempotent tracking setup, then the two migrations.
-	if len(tx.execs) != 3 {
-		t.Fatalf("executed statements = %d, want 3 (tracking setup + 2 migrations)", len(tx.execs))
+
+	// Transaction shape: one for tracking setup, then ONE PER MIGRATION.
+	if got := pool.beginCount(); got != 3 {
+		t.Fatalf("Begin calls = %d, want 3 (tracking + one per migration); single-transaction apply would begin 1", got)
 	}
-	if !strings.Contains(tx.execs[0], "CREATE TABLE IF NOT EXISTS schema_migrations") {
-		t.Errorf("version tracking table must be created before use, got %q", tx.execs[0])
+
+	tracking := pool.txs[0]
+	if len(tracking.execs) != 1 || !strings.Contains(tracking.execs[0], trackingSQLFragment) {
+		t.Errorf("tracking transaction must only create the tracking table, got %v", tracking.execs)
 	}
-	if !strings.Contains(tx.execs[1], "CREATE TABLE services") {
-		t.Errorf("first migration must run first, got %q", tx.execs[1])
+	if tracking.commits != 1 || tracking.rollbacks != 0 {
+		t.Errorf("tracking transaction must commit exactly once (commits=%d rollbacks=%d)", tracking.commits, tracking.rollbacks)
 	}
-	if !strings.Contains(tx.execs[2], "CREATE INDEX idx_demo") {
-		t.Errorf("second migration must run second, got %q", tx.execs[2])
+
+	first := pool.txs[1]
+	if len(first.execs) != 1 || !strings.Contains(first.execs[0], "CREATE TABLE services") {
+		t.Errorf("first migration transaction must run only its own SQL (the version insert is recorded in-tx), got %v", first.execs)
 	}
-	if len(tx.applied) != 2 {
-		t.Errorf("recorded versions = %d, want 2", len(tx.applied))
+	if !first.applied["000001_create.up.sql"] {
+		t.Error("first migration version must be recorded inside its own transaction")
 	}
-	if !tx.applied["000001_create.up.sql"] || !tx.applied["000002_add_index.up.sql"] {
-		t.Errorf("versions must be recorded under their filenames, got %v", tx.applied)
+	if first.commits != 1 || first.rollbacks != 0 {
+		t.Errorf("first migration transaction must commit exactly once (commits=%d rollbacks=%d)", first.commits, first.rollbacks)
 	}
-	if !strings.Contains(tx.execs[0], "CREATE TABLE IF NOT EXISTS schema_migrations") {
-		t.Errorf("version tracking table must be created before use, got %q", tx.execs[0])
+
+	second := pool.txs[2]
+	if len(second.execs) != 1 || !strings.Contains(second.execs[0], "CREATE INDEX idx_demo") {
+		t.Errorf("second migration transaction must run only its own SQL (the version insert is recorded in-tx), got %v", second.execs)
 	}
-	if tx.commits != 1 || tx.rollbacks != 0 {
-		t.Errorf("successful apply must commit exactly once (commits=%d rollbacks=%d)", tx.commits, tx.rollbacks)
+	if !second.applied["000002_add_index.up.sql"] {
+		t.Error("second migration version must be recorded inside its own transaction")
+	}
+	if second.commits != 1 || second.rollbacks != 0 {
+		t.Errorf("second migration transaction must commit exactly once (commits=%d rollbacks=%d)", second.commits, second.rollbacks)
 	}
 }
 
-// TestApplySkipsAlreadyAppliedMigrations pins rerun safety: Compose restarts
-// and retries must never re-execute an already applied migration against
-// the same fresh schema.
+// TestApplyPreservesEarlierCommittedMigrationWhenLaterFails is the
+// distinguishing per-migration-semantics test: when the second migration
+// fails, the first migration's transaction must remain COMMITTED and its
+// version recorded — an all-migrations transaction would roll it back.
+func TestApplyPreservesEarlierCommittedMigrationWhenLaterFails(t *testing.T) {
+	pool := &fakePool{failOnTx: "ADD COLUMN note"}
+	fsys := migrationsFS(map[string]string{
+		"000001_create.up.sql": "CREATE TABLE services (id TEXT PRIMARY KEY);",
+		"000002_add.up.sql":    "ALTER TABLE services ADD COLUMN note TEXT;",
+		"000003_never.up.sql":  "SELECT 1;",
+	})
+
+	applied, err := Apply(context.Background(), pool, fsys)
+	if err == nil {
+		t.Fatal("expected error for the failing second migration, got nil")
+	}
+	if applied != 1 {
+		t.Errorf("applied = %d, want 1 (the earlier migration must stay committed)", applied)
+	}
+
+	// Transactions: tracking + first migration + second migration; the
+	// third migration must never begin.
+	if got := pool.beginCount(); got != 3 {
+		t.Errorf("Begin calls = %d, want 3 (tracking + first + failing second); later migrations must not run", got)
+	}
+
+	first := pool.txs[1]
+	if first.commits != 1 || first.rollbacks != 0 {
+		t.Errorf("first migration must remain committed (commits=%d rollbacks=%d)", first.commits, first.rollbacks)
+	}
+	if !first.applied["000001_create.up.sql"] {
+		t.Error("first migration version must stay recorded after the later failure")
+	}
+
+	second := pool.txs[2]
+	if second.rollbacks != 1 || second.commits != 0 {
+		t.Errorf("failing second migration must roll back exactly once (commits=%d rollbacks=%d)", second.commits, second.rollbacks)
+	}
+	if _, ok := second.applied["000002_add.up.sql"]; ok {
+		t.Error("failing migration must not be recorded as applied")
+	}
+	for _, tx := range pool.txs {
+		for _, exec := range tx.execs {
+			if strings.Contains(exec, "SELECT 1;") {
+				t.Error("execution must stop at the first failing migration")
+			}
+		}
+	}
+}
+
+// TestApplyFailsClosedAndRollsBackOnError pins that a failing first
+// migration aborts the apply: nothing is applied, the failed transaction is
+// rolled back, no version is recorded, and no later migration runs.
+func TestApplyFailsClosedAndRollsBackOnError(t *testing.T) {
+	pool := &fakePool{failOnTx: "broken"}
+	fsys := migrationsFS(map[string]string{
+		"000001_bad.up.sql":   "CREATE TABLE broken ( TO BE OR NOT TO BE",
+		"000002_never.up.sql": "SELECT 1;",
+	})
+
+	applied, err := Apply(context.Background(), pool, fsys)
+	if err == nil {
+		t.Fatal("expected error for a failing migration, got nil")
+	}
+	if applied != 0 {
+		t.Errorf("applied = %d, want 0 on failure", applied)
+	}
+	if got := pool.beginCount(); got != 2 {
+		t.Errorf("Begin calls = %d, want 2 (tracking + failing migration); later migrations must not begin", got)
+	}
+	failed := pool.txs[1]
+	if failed.rollbacks != 1 || failed.commits != 0 {
+		t.Errorf("failure must roll back exactly once (commits=%d rollbacks=%d)", failed.commits, failed.rollbacks)
+	}
+	if _, ok := failed.applied["000001_bad.up.sql"]; ok {
+		t.Error("failed migration must not be recorded as applied")
+	}
+}
+
+// TestApplySkipsAlreadyAppliedMigrations pins rerun safety: Compose
+// restarts and retries must never re-execute an already applied migration
+// against the same fresh schema.
 func TestApplySkipsAlreadyAppliedMigrations(t *testing.T) {
 	pool := &fakePool{}
 	fsys := migrationsFS(map[string]string{
@@ -172,6 +268,7 @@ func TestApplySkipsAlreadyAppliedMigrations(t *testing.T) {
 	if _, err := Apply(context.Background(), pool, fsys); err != nil {
 		t.Fatalf("first Apply: %v", err)
 	}
+	firstRunTxs := len(pool.txs)
 
 	// Second run against the same database state (fake carries versions).
 	applied, err := Apply(context.Background(), pool, fsys)
@@ -181,42 +278,14 @@ func TestApplySkipsAlreadyAppliedMigrations(t *testing.T) {
 	if applied != 0 {
 		t.Errorf("second run applied = %d, want 0 (rerun must be a safe no-op)", applied)
 	}
-	// Only the idempotent IF NOT EXISTS tracking-table statement may run
-	// again; no migration SQL may re-execute.
-	if len(pool.txs[1].execs) != 1 || !strings.Contains(pool.txs[1].execs[0], "CREATE TABLE IF NOT EXISTS schema_migrations") {
-		t.Errorf("second run must only re-run the idempotent tracking setup, got %v", pool.txs[1].execs)
-	}
-}
-
-// TestApplyFailsClosedAndRollsBackOnError pins that a failing migration
-// aborts the apply, rolls back, records no version, and stops before any
-// later migration.
-func TestApplyFailsClosedAndRollsBackOnError(t *testing.T) {
-	pool := &fakePool{}
-	fsys := migrationsFS(map[string]string{
-		"000001_bad.up.sql":   "CREATE TABLE broken ( TO BE OR NOT TO BE",
-		"000002_never.up.sql": "SELECT 1;",
-	})
-
-	// Simulate the failure at the DB level for the broken statement.
-	pool.failOnTx = "broken"
-	applied, err := Apply(context.Background(), pool, fsys)
-	if err == nil {
-		t.Fatal("expected error for a failing migration, got nil")
-	}
-	if applied != 0 {
-		t.Errorf("applied = %d, want 0 on failure", applied)
-	}
-	tx := pool.txs[0]
-	if tx.rollbacks != 1 || tx.commits != 0 {
-		t.Errorf("failure must roll back exactly once (commits=%d rollbacks=%d)", tx.commits, tx.rollbacks)
-	}
-	if _, ok := tx.applied["000001_bad.up.sql"]; ok {
-		t.Error("failed migration must not be recorded as applied")
-	}
-	for _, exec := range tx.execs {
-		if strings.Contains(exec, "SELECT 1;") {
-			t.Error("execution must stop at the first failing migration")
+	// The second run may re-create the idempotent tracking table, but no
+	// migration SQL may re-execute.
+	for _, tx := range pool.txs[firstRunTxs:] {
+		for _, exec := range tx.execs {
+			if strings.Contains(exec, "CREATE TABLE services") ||
+				strings.Contains(exec, "ALTER TABLE services") {
+				t.Errorf("rerun re-executed migration SQL: %q", exec)
+			}
 		}
 	}
 }
