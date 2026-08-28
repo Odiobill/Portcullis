@@ -15,17 +15,24 @@ type fakeExecutor struct {
 	execErr error
 	// errOnCall, when > 0, applies execErr only to that 1-based Exec call.
 	errOnCall int
-	calls     int
+	// failOn maps 1-based Exec call indexes to specific errors.
+	failOn map[int]error
+	calls  int
 }
 
 func (f *fakeExecutor) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
 	f.calls++
 	f.sql = append(f.sql, sql)
+	if err := f.failOn[f.calls]; err != nil {
+		return pgconn.CommandTag{}, err
+	}
 	if f.execErr != nil && (f.errOnCall == 0 || f.calls == f.errOnCall) {
 		return pgconn.CommandTag{}, f.execErr
 	}
 	return pgconn.NewCommandTag("CREATE 1"), nil
 }
+
+var errDatabaseCreate = errors.New("database create failed")
 
 func validSpec() Spec {
 	return Spec{DBName: "portcullis_abc123", UserName: "portcullis_abc123_u", Password: "abcdefghij0123456789ABCDEFGHIJ"}
@@ -194,5 +201,78 @@ func TestProvisionGrantFailureCleansUpDatabaseAndRole(t *testing.T) {
 	joined := strings.Join(db.sql, " | ")
 	if !strings.Contains(joined, `DROP DATABASE IF EXISTS`) || !strings.Contains(joined, `DROP ROLE IF EXISTS`) {
 		t.Errorf("cleanup of partial database/role not attempted: %s", joined)
+	}
+}
+
+// TestCleanupFailureIsSurfacedDistinctly pins the compensation-safety rule:
+// a failed DROP of the provisioner's own partial role/database must yield a
+// distinct inspectable CleanupError (carrying the primary failure and the
+// cleanup failure) that never contains the generated password.
+func TestCleanupFailureIsSurfacedDistinctly(t *testing.T) {
+	// CREATE DATABASE fails; the compensating DROP ROLE also fails.
+	db := &fakeExecutor{failOn: map[int]error{
+		2: errDatabaseCreate,
+		3: errors.New("drop role failed"),
+	}}
+	admin := NewPostgresAdmin(db)
+	spec := validSpec()
+
+	err := admin.Provision(context.Background(), spec)
+	var cerr *CleanupError
+	if !errors.As(err, &cerr) {
+		t.Fatalf("failed cleanup must surface as *CleanupError, got %v", err)
+	}
+	if !errors.Is(err, errDatabaseCreate) {
+		t.Errorf("primary failure not preserved: %v", err)
+	}
+	if len(cerr.Failures) != 1 {
+		t.Errorf("cleanup failures = %v, want exactly one", cerr.Failures)
+	}
+	if !strings.Contains(cerr.Error(), "drop role failed") {
+		t.Errorf("cleanup failure detail missing: %s", cerr.Error())
+	}
+	if !strings.Contains(cerr.Error(), "manual inspection") {
+		t.Errorf("cleanup error must demand manual inspection: %s", cerr.Error())
+	}
+	if strings.Contains(cerr.Error(), spec.Password) {
+		t.Error("cleanup error must never contain the generated password")
+	}
+}
+
+// TestGrantCleanupFailureSurfacesBothFailures covers the two-statement
+// cleanup path: both compensating DROPs failing must preserve both
+// material errors.
+func TestGrantCleanupFailureSurfacesBothFailures(t *testing.T) {
+	db := &fakeExecutor{failOn: map[int]error{
+		3: errors.New("grant failed"),
+		4: errors.New("drop database failed"),
+		5: errors.New("drop role failed"),
+	}}
+	admin := NewPostgresAdmin(db)
+	err := admin.Provision(context.Background(), validSpec())
+	var cerr *CleanupError
+	if !errors.As(err, &cerr) {
+		t.Fatalf("failed cleanup must surface as *CleanupError, got %v", err)
+	}
+	if len(cerr.Failures) != 2 {
+		t.Errorf("cleanup failures = %d, want 2", len(cerr.Failures))
+	}
+	if strings.Contains(cerr.Error(), validSpec().Password) {
+		t.Error("cleanup error must never contain the generated password")
+	}
+}
+
+// TestCleanupSuccessReturnsPlainPrimary pins that successful cleanup keeps
+// the plain primary error (no false compensation signal).
+func TestCleanupSuccessReturnsPlainPrimary(t *testing.T) {
+	db := &fakeExecutor{execErr: errDatabaseCreate, errOnCall: 2}
+	admin := NewPostgresAdmin(db)
+	err := admin.Provision(context.Background(), validSpec())
+	var cerr *CleanupError
+	if errors.As(err, &cerr) {
+		t.Fatalf("successful cleanup must not produce CleanupError, got %v", err)
+	}
+	if !errors.Is(err, errDatabaseCreate) {
+		t.Errorf("primary failure not preserved: %v", err)
 	}
 }

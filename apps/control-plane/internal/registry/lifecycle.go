@@ -236,8 +236,35 @@ func (l *Lifecycle) CreateProvisioned(ctx context.Context, s Service) (Service, 
 		return Service{}, nil, l.compensateProvisionedCreate(ctx, prepared, err)
 	}
 	spec := provision.Spec{DBName: dbName, UserName: dbUser, Password: password}
-	if err := l.Provisioner.Provision(ctx, spec); err != nil {
-		return Service{}, nil, l.compensateProvisionedCreate(ctx, prepared, err)
+	if perr := l.Provisioner.Provision(ctx, spec); perr != nil {
+		// Registry/Caddy compensation via the accepted delete path.
+		delErr := l.deleteUnchecked(ctx, prepared, prepared.ID)
+		var cleanup *provision.CleanupError
+		isCleanupFailure := errors.As(perr, &cleanup)
+
+		switch {
+		case delErr != nil:
+			// Registry/Caddy compensation failed: preserve both material
+			// errors (including any provisioner cleanup failure inside
+			// perr) as a failed compensation.
+			primary := perr
+			if isCleanupFailure {
+				primary = cleanup
+			}
+			return Service{}, nil, &CompensationError{Operation: "create-provision", Primary: primary, Compensate: delErr}
+		case isCleanupFailure:
+			// Registry/Caddy cleanup succeeded, but the provisioner could
+			// not remove its own partial database/role: this is a failed
+			// compensation and must surface as manual-inspection evidence,
+			// never as a complete-rollback claim.
+			return Service{}, nil, &CompensationError{
+				Operation:  "create-provision",
+				Primary:    cleanup.Primary,
+				Compensate: errors.Join(cleanup.Failures...),
+			}
+		default:
+			return Service{}, nil, perr
+		}
 	}
 	return prepared, &provision.Credential{DBName: dbName, DBUser: dbUser, Password: password}, nil
 }

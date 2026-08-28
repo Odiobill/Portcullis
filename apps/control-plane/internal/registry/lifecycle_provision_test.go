@@ -185,6 +185,71 @@ func TestProvisioningFailureSurfacesCompensationFailure(t *testing.T) {
 	}
 }
 
+// TestProvisioningCleanupFailureSurfacesCompensationEvenWhenRegistryCleanupSucceeds
+// pins the compensation-safety rule: when the provisioner could not clean
+// up its own partial database/role, CreateProvisioned must return
+// *CompensationError / ErrCompensationFailed even though the registry and
+// Caddy cleanup succeeded — silent complete-rollback claims are forbidden.
+func TestProvisioningCleanupFailureSurfacesCompensationEvenWhenRegistryCleanupSucceeds(t *testing.T) {
+	f := newProvisionFixture(t)
+	f.prov.err = &provision.CleanupError{
+		Primary:  errors.New("database create failed"),
+		Failures: []error{errors.New("drop role failed")},
+	}
+
+	_, _, err := f.lc.CreateProvisioned(context.Background(), lcProxyService("ignored"))
+	var comp *CompensationError
+	if !errors.As(err, &comp) {
+		t.Fatalf("cleanup failure must surface as *CompensationError, got %v", err)
+	}
+	if !errors.Is(err, ErrCompensationFailed) {
+		t.Errorf("err must match ErrCompensationFailed, got %v", err)
+	}
+	if comp.Operation != "create-provision" {
+		t.Errorf("operation = %q", comp.Operation)
+	}
+	// The registry/Caddy compensation itself succeeded.
+	if len(f.repo.services) != 0 {
+		t.Errorf("record not compensated: %v", f.repo.services)
+	}
+	entries, _ := os.ReadDir(f.genDir)
+	if len(entries) != 0 {
+		t.Errorf("generated files not compensated: %v", entries)
+	}
+}
+
+// TestProvisioningCleanupAndRegistryCleanupBothFailPreservesBoth pins that
+// when both the provisioner cleanup and the registry/Caddy compensation
+// fail, the material errors are preserved as a *CompensationError.
+func TestProvisioningCleanupAndRegistryCleanupBothFailPreservesBoth(t *testing.T) {
+	f := newProvisionFixture(t)
+	f.prov.err = &provision.CleanupError{
+		Primary:  errors.New("database create failed"),
+		Failures: []error{errors.New("drop role failed")},
+	}
+	// Create consumed op calls 1-2; compensating delete: Remove calls 3-4
+	// succeed, repo.Delete fails, restore validate (5) fails.
+	f.repo.deleteErr = errors.New("delete failed")
+	f.op.validateErr = errValidate
+	f.op.validateErrFrom = 5
+
+	_, _, err := f.lc.CreateProvisioned(context.Background(), lcProxyService("ignored"))
+	var comp *CompensationError
+	if !errors.As(err, &comp) {
+		t.Fatalf("want *CompensationError, got %v", err)
+	}
+	if !errors.Is(err, ErrCompensationFailed) {
+		t.Errorf("err must match ErrCompensationFailed, got %v", err)
+	}
+	var cleanup *provision.CleanupError
+	if !errors.As(err, &cleanup) {
+		t.Errorf("provisioner cleanup failure not preserved: %v", err)
+	}
+	if !errors.Is(comp.Compensate, f.repo.deleteErr) {
+		t.Errorf("registry/Caddy cleanup failure not preserved: %v", comp.Compensate)
+	}
+}
+
 func TestPasswordNeverPersistedOrLogged(t *testing.T) {
 	f := newProvisionFixture(t)
 	created, cred, err := f.lc.CreateProvisioned(context.Background(), lcProxyService("ignored"))

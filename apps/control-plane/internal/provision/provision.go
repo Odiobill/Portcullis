@@ -134,6 +134,26 @@ func escapePassword(password string) string {
 	return `'` + strings.ReplaceAll(password, "'", "''") + `'`
 }
 
+// CleanupError reports that the provisioner could not fully remove its own
+// partially created database/role after a provisioning failure. It carries
+// the primary provisioning failure and every cleanup failure, never the
+// generated password, and demands manual inspection.
+type CleanupError struct {
+	Primary  error
+	Failures []error
+}
+
+func (e *CleanupError) Error() string {
+	parts := make([]string, 0, len(e.Failures))
+	for _, f := range e.Failures {
+		parts = append(parts, f.Error())
+	}
+	return fmt.Sprintf("provision: partial provisioning cleanup failed; manual inspection required: primary: %v; cleanup: %s",
+		e.Primary, strings.Join(parts, "; "))
+}
+
+func (e *CleanupError) Unwrap() error { return e.Primary }
+
 // Provision creates the role, the database owned by it, and the privilege
 // grant, in that order. On failure the partially created objects are
 // dropped best-effort (this is compensation of the provisioner's own
@@ -155,23 +175,43 @@ func (a *PostgresAdmin) Provision(ctx context.Context, spec Spec) error {
 		return fmt.Errorf("provision: create role: %w", err)
 	}
 	if _, err := a.db.Exec(ctx, createDB); err != nil {
-		a.cleanup(ctx, fmt.Sprintf(`DROP ROLE IF EXISTS %s`, quoteIdent(spec.UserName)))
-		return fmt.Errorf("provision: create database: %w", err)
+		return a.cleanup(ctx, err,
+			fmt.Sprintf(`DROP ROLE IF EXISTS %s`, quoteIdent(spec.UserName)))
 	}
 	if _, err := a.db.Exec(ctx, grant); err != nil {
-		a.cleanup(ctx,
+		return a.cleanup(ctx, err,
 			fmt.Sprintf(`DROP DATABASE IF EXISTS %s`, quoteIdent(spec.DBName)),
 			fmt.Sprintf(`DROP ROLE IF EXISTS %s`, quoteIdent(spec.UserName)))
-		return fmt.Errorf("provision: grant privileges: %w", err)
 	}
 	return nil
 }
 
-// cleanup best-effort executes compensating statements; secondary failures
-// are intentionally ignored because the primary provisioning error is what
-// the caller must observe.
-func (a *PostgresAdmin) cleanup(ctx context.Context, statements ...string) {
+// cleanup best-effort executes the compensating statements. When every
+// cleanup succeeds the plain primary error is returned; any cleanup
+// failure yields a *CleanupError so the failed compensation cannot be
+// silently downgraded. Statements contain no credentials.
+func (a *PostgresAdmin) cleanup(ctx context.Context, primary error, statements ...string) error {
+	var failures []error
 	for _, stmt := range statements {
-		_, _ = a.db.Exec(ctx, stmt)
+		if _, err := a.db.Exec(ctx, stmt); err != nil {
+			failures = append(failures, fmt.Errorf("cleanup %q: %w", stmtKind(stmt), err))
+		}
+	}
+	if len(failures) == 0 {
+		return primary
+	}
+	return &CleanupError{Primary: primary, Failures: failures}
+}
+
+// stmtKind labels a cleanup statement for error reporting without ever
+// including credentials or full SQL.
+func stmtKind(stmt string) string {
+	switch {
+	case strings.Contains(stmt, "DROP DATABASE"):
+		return "drop database"
+	case strings.Contains(stmt, "DROP ROLE"):
+		return "drop role"
+	default:
+		return "cleanup statement"
 	}
 }

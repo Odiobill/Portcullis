@@ -233,6 +233,35 @@ func TestProvisioningCompensationFailureExplicit(t *testing.T) {
 	}
 }
 
+// TestProvisioningCleanupFailureMapsToManualInspection pins that a
+// provisioner cleanup failure produces the manual-inspection outcome and
+// never the "no partial state was kept" rollback claim.
+func TestProvisioningCleanupFailureMapsToManualInspection(t *testing.T) {
+	f := newProvisioningFixture(t)
+	f.prov.err = &provision.CleanupError{
+		Primary:  errors.New("database create failed"),
+		Failures: []error{errors.New("drop role failed")},
+	}
+	rec := login(t, f.srv, testPasscode)
+	token := sessionTokenFrom(t, rec)
+	csrf, _ := f.srv.sessions.CSRFToken(token, time.Now())
+
+	rec2 := authedPost(t, &serviceFixture{srv: f.srv}, token, csrf, "/services", provisionForm())
+	if rec2.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec2.Code)
+	}
+	body := strings.ToLower(rec2.Body.String())
+	if !strings.Contains(body, "manual inspection") {
+		t.Errorf("manual-inspection outcome missing:\n%s", rec2.Body.String())
+	}
+	if strings.Contains(body, "no partial state") {
+		t.Error("cleanup failure must not claim complete rollback")
+	}
+	if strings.Contains(body, "succeeded") {
+		t.Error("cleanup failure must not claim success")
+	}
+}
+
 func TestDeleteProvisionedFailsClosedAtHTTPLevel(t *testing.T) {
 	f := newProvisioningFixture(t)
 	rec := login(t, f.srv, testPasscode)
