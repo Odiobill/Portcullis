@@ -22,6 +22,7 @@ import (
 
 	"portcullis/control-plane/internal/backups"
 	"portcullis/control-plane/internal/caddyops"
+	"portcullis/control-plane/internal/dump"
 	"portcullis/control-plane/internal/registry"
 	"portcullis/control-plane/internal/session"
 )
@@ -48,6 +49,9 @@ type Config struct {
 	// Backups serves the read-only backup browser. When nil the backup
 	// section is unavailable.
 	Backups *backups.Browser
+	// Dumper serves session-authenticated migration dumps. When nil the
+	// dump action is unavailable.
+	Dumper *dump.Dumper
 	// Now overrides the wall clock; nil means time.Now. Injected for tests.
 	Now func() time.Time
 }
@@ -60,6 +64,7 @@ type Server struct {
 	reloadOp     registry.Operator
 	logs         *caddyops.LogReader
 	backups      *backups.Browser
+	dumper       *dump.Dumper
 	logger       *slog.Logger
 	templates    *template.Template
 	now          func() time.Time
@@ -83,6 +88,7 @@ func New(cfg Config) *Server {
 		reloadOp:     cfg.ReloadOperator,
 		logs:         cfg.LogReader,
 		backups:      cfg.Backups,
+		dumper:       cfg.Dumper,
 		logger:       logger,
 		templates:    template.Must(template.ParseFS(templatesFS, "templates/*.html")),
 		now:          now,
@@ -105,6 +111,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /services/{id}/delete", s.requireSession(s.requireCSRF(s.handleDeleteService)))
 	mux.HandleFunc("GET /backups/{name}", s.requireSession(s.handleBackupDownload))
 	mux.HandleFunc("POST /caddy/reload", s.requireSession(s.requireCSRF(s.handleCaddyReload)))
+	mux.HandleFunc("POST /services/{id}/dump", s.requireSession(s.requireCSRF(s.handleServiceDump)))
 	mux.HandleFunc("POST /logout", s.handleLogout)
 	return mux
 }
@@ -555,6 +562,58 @@ func (s *Server) renderCredentials(w http.ResponseWriter, data credentialsData) 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.templates.ExecuteTemplate(w, "credentials.html", data); err != nil {
 		s.logger.Error("render credentials page", "err", err)
+	}
+}
+
+// handleServiceDump streams a pg_dump of a provisioned service's database.
+// Session and session-bound CSRF verification happen in the wrapping
+// middleware before any repository lookup, rate-limit mutation, or process
+// start. No bearer credential is accepted.
+func (s *Server) handleServiceDump(w http.ResponseWriter, r *http.Request) {
+	if s.dumper == nil {
+		http.Error(w, "Database dumps are not available in this build.", http.StatusServiceUnavailable)
+		return
+	}
+	svc, err := s.lifecycle.Get(r.Context(), r.PathValue("id"))
+	if errors.Is(err, registry.ErrNotFound) {
+		http.Error(w, "service not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		s.logger.Error("resolve service for dump", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if svc.DBName == "" {
+		http.Error(w, "This service has no provisioned database to dump.", http.StatusConflict)
+		return
+	}
+
+	stream, wait, cancel, err := s.dumper.Start(r.Context(), svc.ID, svc.DBName)
+	if err != nil {
+		if errors.Is(err, dump.ErrRateLimited) {
+			http.Error(w, "A dump for this service was already started. At most one dump per service is allowed every five minutes.", http.StatusTooManyRequests)
+			return
+		}
+		s.logger.Error("dump process could not be started", "err", err)
+		http.Error(w, "The dump process could not be started. Please try again.", http.StatusInternalServerError)
+		return
+	}
+	defer cancel()
+
+	// Headers are committed only after a successful start; the stream is
+	// never buffered in full. On client disconnect the request context is
+	// cancelled and the deferred hook terminates the child process.
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", svc.DBName+".dump"))
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.Copy(w, stream); err != nil {
+		s.logger.Error("dump stream interrupted", "err", err)
+	}
+	if werr := wait(); werr != nil {
+		// Post-header failure: the dump is incomplete. This is logged
+		// without secrets and must not be interpreted as a completed dump.
+		s.logger.Error("dump process did not complete", "err", werr)
 	}
 }
 

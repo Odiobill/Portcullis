@@ -87,3 +87,18 @@ failure removes the service again via the accepted compensation path,
 and failed compensation surfaces as `*CompensationError`. Deleting a
 service that carries provisioned DB identifiers fails closed (409):
 automatic database decommissioning is intentionally not implemented.
+
+## Session-authenticated migration dumps (Slice 4c2)
+
+`internal/dump` provides a session+CSRF-protected, rate-limited
+`pg_dump -Fc` streaming boundary. The target service is resolved only
+through the injected registry; the argument array is fixed and
+shell-free (`--host`, `--user`, `-Fc`, `--no-password`, database name)
+with credentials — when a deployment supplies one — flowing only via
+the environment hook, never arguments. At most one dump per service per
+five minutes (in-memory limiter; resets on process restart; rejected
+attempts never consume quota). Successful starts stream
+`application/octet-stream` with safe attachment disposition; the child
+process is terminated on client disconnect, and post-header process
+failures are logged without secrets and never claimed as completed
+dumps. No bearer-token authentication exists.

@@ -48,6 +48,12 @@
           <td>{{if eq (print .Type) "proxy"}}{{.ProxyContainer}}:{{.ProxyPort}}{{else}}{{.StaticRoot}}{{end}}</td>
           <td>
             <a href="/services/{{.ID}}/edit">Edit</a>
+            {{if .DBName}}
+            <form method="post" action="/services/{{.ID}}/dump" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button type="submit">Download dump</button>
+            </form>
+            {{end}}
             <form method="post" action="/services/{{.ID}}/delete" style="display:inline">
               <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
               <button type="submit" class="danger">Delete</button>
